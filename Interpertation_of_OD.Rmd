@@ -1,0 +1,275 @@
+---
+title: "Interpertation_of_OD"
+author: "mulchc"
+date: "2024-02-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+```
+
+TO start here is the main plot
+```{r}
+
+SV_OR_df$Category2 <- stringr::str_to_title(gsub(gsub(SV_OR_df$Category, pattern = 'ERB Overlap: ', replacement = ''), pattern = '_', replacement = ' '))
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Tf', replacement = 'TF')
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Ctcf', replacement = 'CTCF')
+SV_OR_df$Category2 <- reorder(SV_OR_df$Category2, log(SV_OR_df$OR), decreasing = FALSE)
+
+ggplot(SV_OR_df, aes(x = Category2, y = log(OR), fill = SV_Type)) +
+  geom_col(position = position_dodge2(), color = 'black') +
+  #facet_wrap(. , ncol = 3) +
+  egg::theme_article(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(fill = 'SV Type', y = 'Log Odds Ratio', x = '')
+
+```
+
+
+```{r}
+print(names(SV_OR_df))
+print(names(summaryData))
+
+```
+```{r}
+
+summaryData_longINV <- summaryData %>%
+  mutate(long_INV_col = SVTYPE == "INV" & InputRefLength > 125000)
+
+summaryData_longSV <- summaryData %>%
+  mutate(long_SV = InputRefLength > 125000)
+
+print(names(summaryData))
+print(names(summaryData_longINV))
+print(names(summaryData_longSV))
+
+
+```
+```{r}
+summary_longINV_counts <- summaryData_longINV %>%
+  count(long_INV_col)
+
+summary_longINV_counts <- summaryData_longINV %>%
+  count(long_INV_col)
+
+# Plot the counts
+ggplot(summary_longINV_counts, aes(x = long_INV_col, y = n)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen", width = 0.5) +
+  labs(title = "Count of Long Inversions vs Non-Long Inversions", x = "Long Inversion", y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+
+summaryData_filter_longINV <- summaryData_longINV %>%
+  filter(long_INV_col)
+
+#filtered summaryData to a file
+write.table(summaryData_filter_longINV, file = 'SV_Overlaps_longINV.txt', row.names = TRUE, sep = '\t')
+
+# Define SV_OR_df_filterLongINV dataframe
+SV_OR_df_filterLongINV <- data.frame()
+
+# Populate SV_OR_df_filterLongINV with odds ratio data
+for (rowIdx in 1:nrow(dataForContingency)) {
+  contingency_table <- matrix(as.numeric(dataForContingency[rowIdx, c('A', 'B', 'C', 'D'), drop = TRUE]), ncol = 2)
+  
+  SV_OR_df_filterLongINV <- rbind(SV_OR_df_filterLongINV, data.frame(
+    Category = dataForContingency[rowIdx, 'Category', drop = TRUE],
+    SV_Type = dataForContingency[rowIdx, 'SVTYPE', drop = TRUE], 
+    OR = BioProbability::odds.ratio(contingency_table, conf.int = TRUE)$`Odds Ratio`, 
+    Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = TRUE)$`Confidence Interval of level 5%`[1], 
+    Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = TRUE)$`Confidence Interval of level 5%`[2]
+  ))
+}
+
+```
+
+```{r}
+# Print SV_OR_df_filterLongINV
+print(SV_OR_df_filterLongINV)
+
+# Modify SV_OR_df_filterLongINV column names
+colnames(SV_OR_df_filterLongINV) <- c("Category", "SVTYPE", "OR", "Lower_CI", "Upper_CI")
+
+SV_OR_df_filterLongINV$Category2 <- stringr::str_to_title(gsub(gsub(SV_OR_df_filterLongINV$Category, pattern = 'ERB Overlap: ', replacement = ''), pattern = '_', replacement = ' '))
+SV_OR_df_filterLongINV$Category2 <- gsub(SV_OR_df_filterLongINV$Category2, pattern = '^Tf', replacement = 'TF')
+SV_OR_df_filterLongINV$Category2 <- gsub(SV_OR_df_filterLongINV$Category2, pattern = '^Ctcf', replacement = 'CTCF')
+SV_OR_df_filterLongINV$Category2 <- reorder(SV_OR_df_filterLongINV$Category2, log(SV_OR_df_filterLongINV$OR), decreasing = FALSE)
+
+# Plot
+C <- ggplot(SV_OR_df_filterLongINV, aes(x = Category2, y = OR, fill = SVTYPE)) +
+  geom_col(position = position_dodge(width = 0.8), color = 'black') +
+  egg::theme_article(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = 'SV Type', y = 'Odds Ratio', x = '')
+
+print(C)
+```
+
+
+
+
+PRIOR plots for OD spread
+
+
+```{r}
+
+
+
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  labs(title = "Distribution of REF_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  labs(title = "Distribution of SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+```
+
+
+
+```{r}
+
+# Add a logical column long_INV_col
+svIntersectERB <- svIntersectERB %>%
+  mutate(long_INV_col = SVTYPE == "INV" & REF_LENGTH > 125000)
+
+# Filter the data for ERB_TYPE equal to "promoter" or "gene" and not long_INV
+promoter_gene_data <- svIntersectERB %>%
+  filter(ERB_TYPE %in% c("promoter", "gene"), !long_INV_col)
+
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  labs(title = "Distribution of REF_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  labs(title = "Distribution of SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = " large INV rm REF_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+```
+
+
+```{r}
+```
+
+
+```{r}
+#length of disruption:- length of overlap?
+#Look at DEL/DUP this would be REFLENGTH.
+#For INS this should use the SVLENGTH
+
+```

@@ -1,0 +1,308 @@
+---
+title: "Exon_SV_ORs"
+output:
+  word_document: default
+  html_document: default
+date: "2023-11-22"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+```{r}
+#load raw SV data: 
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+```
+
+First lets set up to do an odds ratio test for Exons
+```{r}
+#load SV data intersecting with the feature of interest (exon for now)
+svIntersectExons <- read.table('svData.intersect.SVs.Exons.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectExons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectExons <- merge(svIntersectExons, svData, by = 'SV_ID')
+#swap the FEAT_ID field to be just Exon rather than "Exon-1", "Exon-2", etc. 
+svIntersectExons_simple <- svIntersectExons[,c("SV_ID", "FEAT_ID")]
+svIntersectExons_simple[grepl("Exon", svIntersectExons_simple$FEAT_ID), "FEAT_ID"] <- "Exon"
+
+#left join on SV_ID and then enforce uniqueness (because an SV can map to several exons)
+svIntersectExons_left_join <- left_join(svData, svIntersectExons_simple, by = 'SV_ID') %>% unique.data.frame()
+
+#ensure the table is 100% unique (this ratio should be equal to 1)
+(svIntersectExons_left_join$SV_ID %>% unique() %>% length()) / (svIntersectExons_left_join$SV_ID %>% length())
+
+#replace NAs with the "non-exon" group so that table() works by default
+svIntersectExons_left_join[is.na(svIntersectExons_left_join$FEAT_ID), "FEAT_ID"] <- "non-Exon"
+
+#table containing all SV types vs the binary of whether or not it intersects an Exon
+full_table <- table(svIntersectExons_left_join$SVTYPE, svIntersectExons_left_join$FEAT_ID)
+
+```
+
+
+```{r}
+#initialze a dataframe to store results
+SV_OR_df <- data.frame()
+#iterate through all of the SV types (which are the rownames of full_table)
+for (SV_Type in unique(rownames(full_table))){
+  contingency_table <- rbind(full_table[rownames(full_table) == SV_Type,],
+                             colSums(full_table[rownames(full_table) != SV_Type,]))
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df <- rbind(SV_OR_df, data.frame(SV_Type = SV_Type, 
+                                         OR = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df)
+```
+
+
+```{r}
+
+#plot the ORs
+ggplot(SV_OR_df, aes(x = SV_Type, y = OR, fill = SV_Type)) + 
+  geom_col() + 
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI )) + 
+  egg::theme_article()
+### END CONTINGENCY TABLE APPROACH ###
+
+### BEGIN REGRESSION APPROACH ###
+binary_sv_data <- svIntersectExons_left_join
+#binarize the Exon variable
+binary_sv_data$FEAT_ID <- ifelse(binary_sv_data$FEAT_ID == "Exon", yes = 1, no = 0)
+#binarize the SVTYPE variable (BND or not)
+binary_sv_data$SVTYPE <- ifelse(binary_sv_data$SVTYPE == "BND", yes = 1, no = 0)
+#subset to just the predictor and response variable (optional)
+binary_sv_data <- binary_sv_data[,c("SVTYPE", "FEAT_ID")]
+#fit a logistic regression
+model <- glm(formula = FEAT_ID ~ SVTYPE, 
+    data = binary_sv_data, 
+    family = binomial())
+#OR_you_care_about = exp(beta_coefficient_of_the_term_you_care_about)
+BND_OR <- exp(coef(model))[2]
+
+```
+
+
+lets do the same thing for genes as we did for exons
+
+```{r}
+#load SV data intersecting with the feature of interest (gene for now)
+svIntersectgenes <- read.table('svData.intersect.SVs.genes.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectgenes) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectgenes <- merge(svIntersectgenes, svData, by = 'SV_ID')
+#swap the FEAT_ID field to be just gene rather than "gene-1", "gene-2", etc. 
+svIntersectgenes_simple <- svIntersectgenes[,c("SV_ID", "FEAT_ID")]
+svIntersectgenes_simple[grepl("gene", svIntersectgenes_simple$FEAT_ID), "FEAT_ID"] <- "gene"
+
+```
+
+```{r}
+#left join on SV_ID and then enforce uniqueness (because an SV can map to several genes)
+svIntersectgenes_left_join <- left_join(svData, svIntersectgenes_simple, by = 'SV_ID') %>% unique.data.frame()
+```
+
+```{r}
+#ensure the table is 100% unique (this ratio should be equal to 1)
+(svIntersectgenes_left_join$SV_ID %>% unique() %>% length()) / (svIntersectgenes_left_join$SV_ID %>% length())
+
+#replace NAs with the "non-gene" group so that table() works by default
+svIntersectgenes_left_join[is.na(svIntersectgenes_left_join$FEAT_ID), "FEAT_ID"] <- "non-gene"
+
+#table containing all SV types vs the binary of whether or not it intersects an gene
+full_table_gene <- table(svIntersectgenes_left_join$SVTYPE, svIntersectgenes_left_join$FEAT_ID)
+```
+
+```{r}
+#odds ratio tests
+#initialze a dataframe to store results
+SV_OR_df_gene <- data.frame()
+#iterate through all of the SV types (which are the rownames of full_table)
+for (SV_Type in unique(rownames(full_table_gene))){
+  contingency_table <- rbind(full_table[rownames(full_table_gene) == SV_Type,],
+                             colSums(full_table_gene[rownames(full_table_gene) != SV_Type,]))
+#populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_gene <- rbind(SV_OR_df_gene, data.frame(SV_Type = SV_Type, 
+                                         OR = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_gene)
+
+```
+
+```{r}
+
+#plot the ORs
+ggplot(SV_OR_df_gene, aes(x = SV_Type, y = OR, fill = SV_Type)) + 
+  geom_col() + 
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI )) + 
+  egg::theme_article()
+### END CONTINGENCY TABLE APPROACH ###
+```
+
+
+```{r}
+### BEGIN REGRESSION APPROACH ###
+binary_sv_data <- svIntersectgenes_left_join
+#binarize the gene variable
+binary_sv_data$FEAT_ID <- ifelse(binary_sv_data$FEAT_ID == "gene", yes = 1, no = 0)
+#binarize the SVTYPE variable (BND or not)
+binary_sv_data$SVTYPE <- ifelse(binary_sv_data$SVTYPE == "BND", yes = 1, no = 0)
+#subset to just the predictor and response variable (optional)
+binary_sv_data <- binary_sv_data[,c("SVTYPE", "FEAT_ID")]
+#fit a logistic regression
+model <- glm(formula = FEAT_ID ~ SVTYPE, 
+    data = binary_sv_data, 
+    family = binomial())
+#OR_you_care_about = exp(beta_coefficient_of_the_term_you_care_about)
+BND_OR <- exp(coef(model))[2]
+
+```
+
+
+Lets do the same for ERB sites with 
+svData.intersect.SVs.ERB.txt
+
+```{r}
+#load SV data intersecting with the feature of interest (ERB for now)
+svIntersectERBs <- read.table('svData.intersect.SVs.ERB.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectERBs) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectERBs <- merge(svIntersectERBs, svData, by = 'SV_ID')
+#swap the FEAT_ID field to be just ERB rather than "ERB-1", "ERB-2", etc. 
+svIntersectERBs_simple <- svIntersectERBs[,c("SV_ID", "FEAT_ID")]
+svIntersectERBs_simple[grepl("ERB", svIntersectERBs_simple$FEAT_ID), "FEAT_ID"] <- "ERB"
+
+```
+
+```{r}
+#left join on SV_ID and then enforce uniqueness (because an SV can map to several ERBs)
+svIntersectERBs_left_join <- left_join(svData, svIntersectERBs_simple, by = 'SV_ID') %>% unique.data.frame()
+```
+
+```{r}
+#ensure the table is 100% unique (this ratio should be equal to 1)
+(svIntersectERBs_left_join$SV_ID %>% unique() %>% length()) / (svIntersectERBs_left_join$SV_ID %>% length())
+
+#replace NAs with the "non-ERB" group so that table() works by default
+svIntersectERBs_left_join[is.na(svIntersectERBs_left_join$FEAT_ID), "FEAT_ID"] <- "non-ERB"
+
+#table containing all SV types vs the binary of whether or not it intersects an ERB
+full_table_ERB <- table(svIntersectERBs_left_join$SVTYPE, svIntersectERBs_left_join$FEAT_ID)
+```
+
+```{r}
+#odds ratio tests
+#initialze a dataframe to store results
+SV_OR_df_ERB <- data.frame()
+#iterate through all of the SV types (which are the rownames of full_table)
+for (SV_Type in unique(rownames(full_table_ERB))){
+  contingency_table <- rbind(full_table[rownames(full_table_ERB) == SV_Type,],
+                             colSums(full_table_ERB[rownames(full_table_ERB) != SV_Type,]))
+#populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_ERB <- rbind(SV_OR_df_ERB, data.frame(SV_Type = SV_Type, 
+                                         OR = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_ERB)
+
+```
+
+```{r}
+
+#plot the ORs
+ggplot(SV_OR_df_ERB, aes(x = SV_Type, y = OR, fill = SV_Type)) + 
+  geom_col() + 
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI )) + 
+  egg::theme_article()
+### END CONTINGENCY TABLE APPROACH ###
+
+```
+
+
+lets do the same with the homer data with svData.intersect.SVs.TFBS.txt
+
+```{r}
+#load SV data intersecting with the feature of interest (TFBS for now)
+svIntersectTFBSs <- read.table('svData.intersect.SVs.TFBS.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectTFBSs) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectTFBSs <- merge(svIntersectTFBSs, svData, by = 'SV_ID')
+#swap the FEAT_ID field to be just TFBS rather than "TFBS-1", "TFBS-2", etc. 
+svIntersectTFBSs_simple <- svIntersectTFBSs[,c("SV_ID", "FEAT_ID")]
+svIntersectTFBSs_simple[grepl("TFBS", svIntersectTFBSs_simple$FEAT_ID), "FEAT_ID"] <- "TFBS"
+
+```
+
+```{r}
+#left join on SV_ID and then enforce uniqueness (because an SV can map to several TFBSs)
+svIntersectTFBSs_left_join <- left_join(svData, svIntersectTFBSs_simple, by = 'SV_ID') %>% unique.data.frame()
+```
+
+```{r}
+#ensure the table is 100% unique (this ratio should be equal to 1)
+(svIntersectTFBSs_left_join$SV_ID %>% unique() %>% length()) / (svIntersectTFBSs_left_join$SV_ID %>% length())
+
+#replace NAs with the "non-TFBS" group so that table() works by default
+svIntersectTFBSs_left_join[is.na(svIntersectTFBSs_left_join$FEAT_ID), "FEAT_ID"] <- "non-TFBS"
+
+#table containing all SV types vs the binary of whether or not it intersects an TFBS
+full_table_TFBS <- table(svIntersectTFBSs_left_join$SVTYPE, svIntersectTFBSs_left_join$FEAT_ID)
+```
+
+```{r}
+#odds ratio tests
+#initialze a dataframe to store results
+SV_OR_df_TFBS <- data.frame()
+#iterate through all of the SV types (which are the rownames of full_table)
+for (SV_Type in unique(rownames(full_table_TFBS))){
+  contingency_table <- rbind(full_table[rownames(full_table_TFBS) == SV_Type,],
+                             colSums(full_table_TFBS[rownames(full_table_TFBS) != SV_Type,]))
+#populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_TFBS <- rbind(SV_OR_df_TFBS, data.frame(SV_Type = SV_Type, 
+                                         OR = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_TFBS)
+
+```
+
+```{r}
+
+#plot the ORs
+ggplot(SV_OR_df_TFBS, aes(x = SV_Type, y = OR, fill = SV_Type)) + 
+  geom_col() + 
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI )) + 
+  egg::theme_article()
+### END CONTINGENCY TABLE APPROACH ###

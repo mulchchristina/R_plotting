@@ -1,0 +1,772 @@
+---
+title: "SV Counts"
+output: html_document
+date: "2023-11-21"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+```{r}
+
+genomeSizeMMul10 <- 2971314966
+genomeSizeGRCh37 <- 3101788170
+
+```
+
+
+
+# Make a single table with all the SV attributes, keyed off ID:
+
+```{r}
+
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+
+```
+
+# Do the same for the lifted data. 
+
+```{r}
+
+svDataLifted <- read.table('svData.lifted.bed', header = F)
+names(svDataLifted) <- c('CHROM', 'START0', 'END', 'SV_ID')
+svDataLifted <- merge(svDataLifted, svData[c('SV_ID', 'SVTYPE', 'SVLEN')], all.x = T, all.y = F, by = 'SV_ID')
+
+svDataLifted$REF_LENGTH <-svDataLifted$END - svDataLifted$START0
+
+
+```
+
+# These data frames summarize the input SVs for each genome. We will use this when calculating odds-ratios for the intersects
+
+```{r}
+
+
+svSummaryMMul10 <- svData %>% group_by(SVTYPE) %>% summarise(
+  InputSVs = n_distinct(SV_ID),
+  InputRefLength = sum(REF_LENGTH),
+  GenomeSize = genomeSizeMMul10
+)
+
+svSummaryGRCh37 <- svDataLifted %>% group_by(SVTYPE) %>% summarise(
+  InputSVs = n_distinct(SV_ID),
+  InputRefLength = sum(REF_LENGTH),
+  GenomeSize = genomeSizeGRCh37
+)
+
+
+```
+
+
+
+# Load the intersect and strip away most unnecessary information:
+
+```{r}
+
+geneTotals_exons <- read.table('gtfExon.bed', sep = '\t')
+names(geneTotals_exons) <- c('CHROM', 'START0', 'END', 'GENE_ID')
+geneTotals_exons$REF_LENGTH <- geneTotals_exons$END - geneTotals_exons$START0
+
+geneSummary <- geneTotals_exons %>% summarise(
+  TotalInput_Features = n_distinct(GENE_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectExons <- read.table('svData.intersect.SVs.Exons.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectExons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectExons <- merge(svIntersectExons, svData, by = 'SV_ID')
+
+svIntersectExonsSummary <- svIntersectExons %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'Exon Overlap'
+)
+svIntersectExonsSummary <- merge(svIntersectExonsSummary, svSummaryMMul10, by = 'SVTYPE')
+svIntersectExonsSummary <- merge(svIntersectExonsSummary, geneSummary)
+
+summaryData <- svIntersectExonsSummary
+
+#rm(geneTotals)
+#rm(geneSummary)
+#rm(svIntersectExonsSummary)
+#summaryData
+#
+#rename rest
+
+
+```
+
+
+# Same idea as above, but for gene body:
+
+```{r}
+
+geneTotals_genes <- read.table('gtfGene.bed', sep = '\t')
+names(geneTotals_genes) <- c('CHROM', 'START0', 'END', 'GENE_ID')
+geneTotals_genes$REF_LENGTH <- geneTotals_genes$END - geneTotals_genes$START0
+
+geneSummary_genes <- geneTotals_genes %>% summarise(
+  TotalInput_Features = n_distinct(GENE_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectGenes <- read.table('svData.intersect.SVs.Genes.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectGenes) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectGenes <- merge(svIntersectGenes, svData, by = 'SV_ID')
+
+svIntersectGenesSummary <- svIntersectGenes %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'Gene Overlap'
+)
+
+svIntersectGenesSummary <- merge(svIntersectGenesSummary, svSummaryMMul10, by = 'SVTYPE')
+svIntersectGenesSummary <- merge(svIntersectGenesSummary, geneSummary)
+
+summaryData_genes <- rbind(summaryData, svIntersectGenesSummary)
+
+#rm(geneTotals)
+#rm(geneSummary)
+#rm(svIntersectGenesSummary)
+#summaryData now summaryData_genes
+#now unique names
+
+```
+
+
+# Same idea as above, but for HOMER TFBS:
+
+```{r}
+
+tfbsTotals <- read.table('stats.txt', sep = '\t')
+names(tfbsTotals) <- c('NAME', 'VALUE')
+
+homerIntersect <- read.table('svData.intersect.SVs.TFBS.txt.gz', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(homerIntersect) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+homerIntersect <- merge(homerIntersect, svData, by = 'SV_ID')
+
+homerSummary <- homerIntersect %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'TFBS Overlap'
+)
+homerSummary <- merge(homerSummary, svSummaryMMul10, by = 'SVTYPE')
+homerSummary$TotalInput_Features <- tfbsTotals$VALUE[tfbsTotals$NAME == 'TotalTFBS_Features']
+homerSummary$Input_Feature_RefLength <- tfbsTotals$VALUE[tfbsTotals$NAME == 'TotalTFBS_BP']
+
+summaryData_tfbs <- rbind(summaryData, homerSummary)
+
+#rm(tfbsTotals)
+#rm(homerSummary)
+
+```
+
+
+
+# The intersect between ERB data and the lifted SVs. 
+
+```{r}
+
+erbTotals <- read.table('erb.bed', sep = '\t')
+names(erbTotals) <- c('CHROM', 'START0', 'END', 'ERB_TYPE', 'ERB_ID')
+erbTotals$REF_LENGTH <- erbTotals$END - erbTotals$START0
+
+erbSummary <- erbTotals %>% group_by(ERB_TYPE) %>% summarise(
+  TotalInput_Features = n_distinct(ERB_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectERB <- read.table('svData.intersect.SVs.ERB.txt', sep = '\t')[c(4, 6, 7, 8, 9, 10)]
+names(svIntersectERB) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'ERB_TYPE', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectERB <- merge(svIntersectERB, svData, by = 'SV_ID')
+
+svIntersectERBSummary <- svIntersectERB %>% group_by(SVTYPE, ERB_TYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = paste0('ERB Overlap: ', unique(ERB_TYPE))
+) 
+
+svIntersectERBSummary <- merge(svIntersectERBSummary, svSummaryGRCh37, by = 'SVTYPE')
+svIntersectERBSummary <- merge(svIntersectERBSummary, erbSummary, by = 'ERB_TYPE')
+
+
+summaryData_ERBintersect <- rbind(svIntersectERBSummary[names(summaryData)], summaryData)
+rm(svIntersectERBSummary)
+
+```
+
+```{r}
+
+
+# Filter the data for ERB_TYPE equal to "promoter" or "gene"
+promoter_gene_data <- svIntersectERB %>%
+  filter(ERB_TYPE %in% c("promoter", "gene"))
+
+
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  labs(title = "Distribution of REF_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  labs(title = "Distribution of SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+```
+
+```{r}
+
+
+# Filter the data for ERB_TYPE equal to "promoter" or "gene" and SV_TYPE equal to "INV"
+promoter_gene_data <- svIntersectERB %>%
+  filter(ERB_TYPE %in% c("promoter", "gene"), SVTYPE == "INV")
+
+# Filter out values over 10000
+Long_INV <- promoter_gene_data %>%
+  filter(REF_LENGTH <= 125000)
+
+# Print the filtered values
+print(Long_INV)
+
+```
+```{r}
+
+# Add a logical column long_INV_col
+svIntersectERB <- svIntersectERB %>%
+  mutate(long_INV_col = SVTYPE == "INV" & REF_LENGTH > 125000)
+
+# Filter the data for ERB_TYPE equal to "promoter" or "gene" and not long_INV
+promoter_gene_data <- svIntersectERB %>%
+  filter(ERB_TYPE %in% c("promoter", "gene"), !long_INV_col)
+
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  labs(title = "Distribution of REF_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  labs(title = "Distribution of SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  labs(title = "Distribution of REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene' excluding long_INV",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Plot the box plot for REF_LENGTH and SV_LENGTH side by side
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter(position = "dodge") +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+
+# Plot the box plot for REF_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = REF_LENGTH)) +
+  geom_jitter() +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = " large INV rm REF_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "REF_LENGTH") +
+  theme_minimal()
+
+# Plot the box plot for SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE, y = SVLEN)) +
+  geom_jitter() +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "SV_LENGTH") +
+  theme_minimal()
+
+# Combined plot for REF_LENGTH and SV_LENGTH
+ggplot(promoter_gene_data, aes(x = ERB_TYPE)) +
+  geom_jitter(aes(y = REF_LENGTH, fill = "REF_LENGTH"), position = "dodge") +
+  geom_jitter(aes(y = SVLEN, fill = "SV_LENGTH"), position = "dodge") +
+  facet_wrap(~ SVTYPE, scales = "free_x") +  # Facet wrap by SVTYPE
+  labs(title = "Large INV rm REF_LENGTH and SV_LENGTH for ERB_TYPE 'promoter' and 'gene'",
+       x = "ERB_TYPE",
+       y = "Values") +
+  theme_minimal()
+```
+
+
+```{r}
+
+#make a df with one col for variables
+
+# make a single column
+svIntersectERBSummary_long <- svIntersectERB %>%
+  pivot(cols = c(SVLEN, REF_LENGTH, INTERSECT_LENGTH),
+               names_to = "variable",
+               values_to = "value")
+```
+
+```{r}
+
+# Plot the violin plots for SVLEN, REF_LENGTH, and INTERSECT_LENGTH
+ggplot(svIntersectERBSummary_long, aes(x = ERB_TYPE, y = value, fill = variable)) +
+  geom_violin(trim = FALSE) +
+  labs(title = "Distribution of SVLEN, REF_LENGTH, and INTERSECT_LENGTH by ERB_TYPE",
+       x = "ERB_TYPE",
+       y = "Value") +
+  facet_wrap(~ variable + SVTYPE, scales = "free_y", ncol = 1) +  # Facet by SVTYPE
+  theme_minimal()
+
+# Plot the density plots for SVLEN, REF_LENGTH, and INTERSECT_LENGTH
+ggplot(svIntersectERBSummary_long, aes(x = value, fill = variable)) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Density Plot of SVLEN, REF_LENGTH, and INTERSECT_LENGTH by ERB_TYPE",
+       x = "Value",
+       y = "Density") +
+  facet_wrap(~ ERB_TYPE + SVTYPE, scales = "free") +  # Facet by SVTYPE
+  theme_minimal()
+
+# Filter the data for ERB_TYPE "promoter"
+promoter_data <- svIntersectERB %>%
+  filter(ERB_TYPE == "promoter")
+
+# Gather the SVLEN, REF_LENGTH, and INTERSECT_LENGTH columns into a single column
+promoter_data_long <- promoter_data %>%
+  pivot_longer(cols = c(SVLEN, REF_LENGTH, INTERSECT_LENGTH),
+               names_to = "variable",
+               values_to = "value")
+
+# Plot the violin plots for SVLEN, REF_LENGTH, and INTERSECT_LENGTH
+ggplot(promoter_data_long, aes(x = variable, y = value, fill = variable)) +
+  geom_violin(trim = FALSE) +
+  labs(title = "Distribution of SVLEN, REF_LENGTH, and INTERSECT_LENGTH for ERB_TYPE 'promoter'",
+       x = "Variable",
+       y = "Value") +
+  facet_wrap(~ SVTYPE, scales = "free_y", ncol = 1) +  # Facet by SVTYPE
+  theme_minimal()
+
+ 
+
+```
+```{r}
+#length of disruption:- length of overlap?
+#Look at DEL/DUP this would be REFLENGTH.
+#For INS this should use the SVLENGTH
+
+```
+
+
+```{r}
+#ERB contingency table
+dataForContingency_ERB <- summaryData_ERBintersect[c('Category', 'SVTYPE')]
+dataForContingency_ERB$A <- summaryData_ERBintersect$TotalIntersect
+dataForContingency_ERB$B <- summaryData_ERBintersect$InputRefLength - summaryData_ERBintersect$TotalIntersect
+dataForContingency_ERB$C <- summaryData_ERBintersect$Input_Feature_RefLength - summaryData_ERBintersect$TotalIntersect
+dataForContingency_ERB$D <- summaryData_ERBintersect$GenomeSize - summaryData_ERBintersect$Input_Feature_RefLength - dataForContingency_ERB$B
+
+write.table(summaryData_ERBintersect, file = 'SV_Overlaps.txt', row.names = F, sep = '\t')
+write.table(dataForContingency_ERB, file = 'OR_Data.txt', row.names = F, sep = '\t')
+
+```
+
+
+```{r}
+
+
+SV_OR_df_ERB <- data.frame()
+
+for (rowIdx in 1:nrow(dataForContingency_ERB)){
+  contingency_table_ERB <- matrix(as.numeric(dataForContingency_ERB[rowIdx,c('A','B','C','D'), drop = TRUE]), ncol = 2)
+  
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_ERB <- rbind(SV_OR_df_ERB, data.frame(Category = dataForContingency_ERB[rowIdx,'Category', drop = TRUE], SV_Type = dataForContingency_ERB[rowIdx,'SVTYPE', drop = TRUE], 
+                                         OR = BioProbability::odds.ratio(contingency_table_ERB, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table_ERB, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table_ERB, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_ERB)
+
+```
+
+
+```{r}
+#plotting the OR df
+# Remove "ERB Overlap:" prefix 
+SV_OR_df_ERB <- SV_OR_df_ERB %>%
+  mutate(Category_of_ERB_Overlap = gsub("ERB Overlap: ", "", Category))
+
+# Plotting the OR df
+ggplot(SV_OR_df_ERB, aes(x = Category_of_ERB_Overlap, y = log(OR))) +
+  geom_col() +
+  facet_grid(. ~ SV_Type, scales = "free", space = "free") +
+  ggtitle("ERB and SV Overlaps Odds Ratio") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) 
+
+```
+lets apply this to a differnt data set.
+
+```{r}
+#TFBS contingency table
+dataForContingency_TFBS <- summaryData_tfbs[c('Category', 'SVTYPE')]
+dataForContingency_TFBS$A <- summaryData_tfbs$TotalIntersect
+dataForContingency_TFBS$B <- summaryData_tfbs$InputRefLength - summaryData_tfbs$TotalIntersect
+dataForContingency_TFBS$C <- summaryData_tfbs$Input_Feature_RefLength - summaryData_tfbs$TotalIntersect
+dataForContingency_TFBS$D <- summaryData_tfbs$GenomeSize - summaryData_tfbs$Input_Feature_RefLength - dataForContingency_TFBS$B
+
+write.table(summaryData_tfbs, file = 'SV_Overlaps.txt', row.names = F, sep = '\t')
+write.table(dataForContingency_TFBS, file = 'OR_Data.txt', row.names = F, sep = '\t')
+
+```
+
+
+```{r}
+
+SV_OR_df_TFBS <- data.frame()
+
+for (rowIdx in 1:nrow(dataForContingency_TFBS)){
+  contingency_table_TFBS <- matrix(as.numeric(dataForContingency_TFBS[rowIdx,c('A','B','C','D'), drop = TRUE]), ncol = 2)
+  
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_TFBS <- rbind(SV_OR_df_TFBS, data.frame(Category = dataForContingency_TFBS[rowIdx,'Category', drop = TRUE], SV_Type = dataForContingency_TFBS[rowIdx,'SVTYPE', drop = TRUE], 
+                                         OR = BioProbability::odds.ratio(contingency_table_TFBS, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table_TFBS, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table_TFBS, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+print(SV_OR_df_TFBS)
+```
+```{r}
+#plotting the OR df
+# Remove "TFBS Overlap:" prefix 
+SV_OR_df_TFBS <- SV_OR_df_TFBS %>%
+  mutate(Category_of_TFBS_Overlap = gsub("TFBS Overlap: ", "", Category))
+
+# Plotting the OR df
+ggplot(SV_OR_df_TFBS, aes(x = Category_of_TFBS_Overlap, y = log(OR))) +
+  geom_col() +
+  facet_grid(. ~ SV_Type, scales = "free", space = "free") +
+  ggtitle("TFBS and SV Overlaps Odds Ratio") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) 
+```
+ok now genes
+```{r}
+#genes contingency table
+dataForContingency_genes <- summaryData_genes[c('Category', 'SVTYPE')]
+dataForContingency_genes$A <- summaryData_genes$TotalIntersect
+dataForContingency_genes$B <- summaryData_genes$InputRefLength - summaryData_genes$TotalIntersect
+dataForContingency_genes$C <- summaryData_genes$Input_Feature_RefLength - summaryData_genes$TotalIntersect
+dataForContingency_genes$D <- summaryData_genes$GenomeSize - summaryData_genes$Input_Feature_RefLength - dataForContingency_genes$B
+
+write.table(summaryData_genes, file = 'SV_Overlaps.txt', row.names = F, sep = '\t')
+write.table(dataForContingency_genes, file = 'OR_Data.txt', row.names = F, sep = '\t')
+
+```
+
+
+```{r}
+
+SV_OR_df_genes <- data.frame()
+
+for (rowIdx in 1:nrow(dataForContingency_genes)){
+  contingency_table_genes <- matrix(as.numeric(dataForContingency_genes[rowIdx,c('A','B','C','D'), drop = TRUE]), ncol = 2)
+  
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_genes <- rbind(SV_OR_df_genes, data.frame(Category = dataForContingency_genes[rowIdx,'Category', drop = TRUE], SV_Type = dataForContingency_genes[rowIdx,'SVTYPE', drop = TRUE], 
+                                         OR = BioProbability::odds.ratio(contingency_table_genes, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table_genes, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table_genes, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_genes)
+```
+
+```{r}
+#plotting the OR df
+# Remove "genes Overlap:" prefix 
+SV_OR_df_genes <- SV_OR_df_genes %>%
+  mutate(Category_of_genes_Overlap = gsub("genes Overlap: ", "", Category))
+
+# Plotting the OR df
+ggplot(SV_OR_df_genes, aes(x = Category_of_genes_Overlap, y = log(OR))) +
+  geom_col() +
+  facet_grid(. ~ SV_Type, scales = "free", space = "free") +
+  ggtitle("genes and SV Overlaps Odds Ratio") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) 
+```
+```{r}
+#exons contingency table
+dataForContingency_exons <- summaryData[c('Category', 'SVTYPE')]
+dataForContingency_exons$A <- summaryData$TotalIntersect
+dataForContingency_exons$B <- summaryData$InputRefLength - summaryData$TotalIntersect
+dataForContingency_exons$C <- summaryData$Input_Feature_RefLength - summaryData$TotalIntersect
+dataForContingency_exons$D <- summaryData$GenomeSize - summaryData$Input_Feature_RefLength - dataForContingency_exons$B
+
+write.table(summaryData, file = 'SV_Overlaps.txt', row.names = F, sep = '\t')
+write.table(dataForContingency_exons, file = 'OR_Data.txt', row.names = F, sep = '\t')
+
+```
+
+
+```{r}
+
+
+SV_OR_df_exons <- data.frame()
+
+for (rowIdx in 1:nrow(dataForContingency_exons)){
+  contingency_table_exons <- matrix(as.numeric(dataForContingency_exons[rowIdx,c('A','B','C','D'), drop = TRUE]), ncol = 2)
+  
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df_exons <- rbind(SV_OR_df_exons, data.frame(Category = dataForContingency_exons[rowIdx,'Category', drop = TRUE], SV_Type = dataForContingency_exons[rowIdx,'SVTYPE', drop = TRUE], 
+                                         OR = BioProbability::odds.ratio(contingency_table_exons, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table_exons, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table_exons, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df_exons)
+```
+
+```{r}
+#plotting the OR df
+# Remove "exons Overlap:" prefix 
+SV_OR_df_exons <- SV_OR_df_exons %>%
+  mutate(Category_of_exons_Overlap = gsub("exons Overlap: ", "", Category))
+
+# Plotting the OR df
+ggplot(SV_OR_df_exons, aes(x = Category_of_exons_Overlap, y = log(OR))) +
+  geom_col() +
+  facet_grid(. ~ SV_Type, scales = "free", space = "free") +
+  ggtitle("exons and SV Overlaps Odds Ratio") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) 
+
+```
+
+combineing the homer and erb data into one plot
+```{r}
+
+ERB_TFBS_OD_overlaps <- ggplot(mapping = aes(x = reorder(Category_of_ERB_Overlap, log(OR)), y = log(OR))) +
+  geom_col(data = SV_OR_df_ERB, aes(fill = "ERB Overlap"), color = "black") +
+  geom_col(data = SV_OR_df_TFBS, aes(x = reorder(Category_of_TFBS_Overlap, log(OR)), y = log(OR), fill = "TFBS Overlap"), color = "black") +
+  facet_grid(. ~ SV_Type, scales = "free_x", space = "free_x") +
+  ggtitle("ERB and TFBS Overlaps with PacBio data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) +
+  scale_fill_manual(values = c("ERB Overlap" = "blue", "TFBS Overlap" = "darkolivegreen"), name = "Overlap Type")
+
+print(ERB_TFBS_OD_overlaps)
+#try this another way
+ERB_TFBS_OD_overlaps_exonsep <- bind_rows(
+  mutate(SV_OR_df_ERB, CombinedCategory = paste("ERB", Category_of_ERB_Overlap)),
+  mutate(SV_OR_df_TFBS, CombinedCategory = paste("TFBS", Category_of_TFBS_Overlap))
+)
+
+ERB_TFBS_OD_overlaps_exonsep <- ggplot(ERB_TFBS_OD_overlaps_exonsep, aes(x = reorder(CombinedCategory, log(OR)), y = log(OR), fill = CombinedCategory)) +
+  geom_col(position = position_dodge(width = 3), color = "black") +
+  facet_grid(. ~ SV_Type, scales = "free_x", space = "free_x") +
+  ggtitle("ERB and TFBS Overlaps with PacBio data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1)) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25))
+
+print(ERB_TFBS_OD_overlaps)
+
+print(ERB_TFBS_OD_overlaps_exonsep)
+
+```
+
+```{r}
+
+#ordering
+
+# Reorder CombinedCategory based on log odds ratio regardless of facets
+ERB_TFBS_OD_overlaps_exonsep$data <- transform(ERB_TFBS_OD_overlaps_exonsep$data,
+                                               CombinedCategory = reorder(CombinedCategory, log(OR)))
+```
+
+```{r}
+
+
+# Update SV_Type values for ERB and TFBS Exon Overlap to a common label
+ERB_TFBS_OD_overlaps_exonsep$SV_Type[grepl("ERB", ERB_TFBS_OD_overlaps_exonsep$CombinedCategory)] <- "Exon"
+ERB_TFBS_OD_overlaps_exonsep$SV_Type[grepl("TFBS", ERB_TFBS_OD_overlaps_exonsep$CombinedCategory)] <- "Exon"
+
+ERB_TFBS_OD_overlaps_exonsep <- ggplot(ERB_TFBS_OD_overlaps_exonsep, aes(x = reorder(CombinedCategory, log(OR)), y = log(OR), fill = CombinedCategory)) +
+  geom_col(position = position_dodge(width = 3), color = "black") +
+  facet_grid(. ~ SV_Type, scales = "free_x", space = "free_x") +
+  ggtitle("ERB and TFBS Overlaps with PacBio data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1)) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25))
+
+print(ERB_TFBS_OD_overlaps)
+
+print(ERB_TFBS_OD_overlaps_exonsep)
+
+
+
+```
+
+```{r}
+
+ERB_TFBS_OD_overlaps_basic <- ggplot(mapping = aes(x = reorder(Category_of_ERB_Overlap, log(OR)), y = log(OR))) +
+  geom_col(data = SV_OR_df_ERB, aes(fill = "ERB Overlap"), color = "black") +
+  geom_col(data = SV_OR_df_TFBS, aes(x = reorder(Category_of_TFBS_Overlap, log(OR)), y = log(OR), fill = "TFBS Overlap"), color = "black") +
+  ggtitle("ERB and TFBS Overlaps with PacBio data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  scale_y_continuous(breaks = seq(-2, 2, 0.25)) +
+  scale_fill_manual(values = c("ERB Overlap" = "blue", "TFBS Overlap" = "darkolivegreen"), name = "Overlap Type")
+
+print(ERB_TFBS_OD_overlaps_basic)
+
+```
+
+```{r}
+colnames(SV_OR_df_ERB)
+colnames(SV_OR_df_TFBS)
+colnames(SV_OR_df_genes)
+colnames(SV_OR_df_exons)
+
+SV_OR_df <- rbind(SV_OR_df_ERB, SV_OR_df_TFBS,SV_OR_df_genes, SV_OR_df_exons)
+
+```
+
+```{r}
+#Ben on 12/4
+SV_OR_df$Category <- stringr::str_to_title(gsub(gsub(SV_OR_df$Category, pattern = 'ERB Overlap: ', replacement = ''), pattern = '_', replacement = ' '))
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Tf', replacement = 'TF')
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Ctcf', replacement = 'CTCF')
+SV_OR_df$Category2 <- reorder(SV_OR_df$Category2, log(SV_OR_df$OR), decreasing = FALSE)
+
+ggplot(SV_OR_df, aes(x = Category2, y = log(OR), fill = SV_Type)) +
+  geom_col(position = position_dodge2(), color = 'black') +
+  #facet_wrap(. , ncol = 3) +
+  egg::theme_article(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(fill = 'SV Type', y = 'Log Odds Ratio', x = '')
+
+```
+
+```{r}
+
+SV_OR_df$Category <- reorder(SV_OR_df$Category, log(SV_OR_df$OR), decreasing = FALSE)
+
+ggplot(SV_OR_df, aes(x = Category, y = log(OR), fill = SV_Type)) +
+  geom_col(position = position_dodge2(), color = 'black') +
+  #facet_wrap(. , ncol = 3) +
+  egg::theme_article(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(fill = 'SV Type', y = 'Log Odds Ratio')
+```
+

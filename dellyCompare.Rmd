@@ -1,0 +1,470 @@
+---
+title: "dellyCompare"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+packageVersion("rlang")
+
+library(dplyr)
+library(ggplot2)
+library("tidyverse")
+library(dplyr)
+library(tidyverse)
+library(VennDiagram)
+library(grid)
+library(rcartocolor)  
+
+# colorblind
+nColor <- 12
+colorblind <- carto_pal(nColor, "Safe")
+
+```
+
+
+```{r}
+
+#The original files without overlaps
+sv_20_bed <- read.table("svData.exNV.20.bed", header = FALSE)
+#SV id is col v3
+delly_bed <- read.table("delly_20.shortread.filtered.2.bed", header = FALSE)
+
+```
+
+```{r}
+#the bedtools intersect output files
+fuzzy_match <- read.delim("svData.intersect20_fuzzy.75...txt", header = FALSE)
+#SV id is col v32
+exact_match <- read.delim("svData.intersect20_fuzzy.100...txt", header = FALSE)
+#SV id is col v33
+
+```
+
+Harvest the SVIDS from svData
+
+```{r}
+
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+```
+
+
+
+```{r}
+delly_count <- nrow(unique(delly_bed))
+sv_trio_count <- nrow(unique(sv_20_bed))
+exact_count <- nrow(unique(exact_match))
+fuzzy_count <- nrow(unique(fuzzy_match))
+
+counts_df <- data.frame(Method = c("Delly Only", "PacBio Only", "Exact Match", "Fuzzy Match(.75)"),
+                        Count = c(delly_count, sv_trio_count, exact_count, fuzzy_count))
+
+```
+
+```{r}
+ggplot(counts_df, aes(x = Method, y = Count, fill = Method)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Count of unique Variants",
+       x = "Input Source",
+       y = "Count") +
+  scale_fill_manual(values = colorblind) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+counts_df <- counts_df %>%
+  mutate(Fraction = Count / sum(Count),
+         Cumulative = cumsum(Fraction) - 0.5 * Fraction)
+
+# Create the pie chart
+pie_chart <- ggplot(counts_df, aes(x = "", y = Fraction, fill = Method)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Count of Unique Variants", fill = "Method") +
+  scale_fill_manual(values = colorblind) +
+  theme_void() +
+  geom_text(aes(label = paste0(Method, ": ", scales::percent(Fraction, accuracy = 1))),
+            position = position_stack(vjust = 0.5), size = 3)
+
+# Print the pie chart
+print(pie_chart)
+
+```
+```{r}
+
+
+
+
+# Concatenate all columns into a single string for each row
+sv_20_bed$ConcatRow <- apply(sv_20_bed, 1, paste, collapse = "_")
+delly_bed$ConcatRow <- apply(delly_bed, 1, paste, collapse = "_")
+fuzzy_match$ConcatRow <- apply(fuzzy_match, 1, paste, collapse = "_")
+
+# Extract the unique concatenated rows from fuzzy_match_high
+fuzzy_match_rows <- unique(fuzzy_match$ConcatRow)
+
+# Filter out rows from sv_20_bed and delly_bed that are in fuzzy_match_high
+filtered_sv_20_bed <- sv_20_bed %>% filter(!ConcatRow %in% fuzzy_match_rows)
+filtered_delly_bed <- delly_bed %>% filter(!ConcatRow %in% fuzzy_match_rows)
+
+# Drop the ConcatRow column as it's no longer needed
+filtered_sv_20_bed <- filtered_sv_20_bed %>% select(-ConcatRow)
+filtered_delly_bed <- filtered_delly_bed %>% select(-ConcatRow)
+
+# Check the filtered data frames
+print(head(filtered_sv_20_bed))
+print(head(filtered_delly_bed))
+
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Assume sv_20_bed, delly_bed, and fuzzy_match_high have been read previously
+# Also assume filtered_sv_20_bed and filtered_delly_bed have been created as shown in the previous response
+
+# Create the data for the pie chart
+counts <- data.frame(
+  Category = c("Fuzzy (.75)", "Exact", "Delly Only", "PacBio SV Data Only"),
+  Count = c(nrow(fuzzy_match), # Assuming fuzzy_match_high contains Fuzzy (.75) matches
+            nrow(exact_match), # Exact matches
+            nrow(filtered_delly_bed), # Delly Only
+            nrow(filtered_sv_20_bed)) # PacBio SV Data Only
+)
+
+
+# Create the pie chart
+pie_chart <- ggplot(counts, aes(x = "", y = Count, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Variant Categories",
+       fill = "Category") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank())
+
+countsFraction <- counts %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+
+# Create the pie chart
+pie_chart <- ggplot(countsFraction, aes(x = "", y = Count, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Variant Categories",
+       fill = "Category") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank()) +
+  geom_text(aes(label = paste0(Count, "\n(", round(Percentage, 1), "%)")),
+            position = position_stack(vjust = 0.5), size = 4)
+
+# Print the pie chart
+print(pie_chart)
+# Print the pie chart
+print(pie_chart)
+```
+```{r}
+# Concatenate all columns into a single string for each row in exact_match
+exact_match$ConcatRow <- apply(exact_match, 1, paste, collapse = "_")
+
+# Filter out rows from exact_match that are not in fuzzy_match
+filtered_exact_bed <- exact_match %>% filter(!ConcatRow %in% fuzzy_match_rows)
+
+# Concatenate all columns into a single string for each row
+sv_20_bed$ConcatRow <- apply(sv_20_bed, 1, paste, collapse = "_")
+delly_bed$ConcatRow <- apply(delly_bed, 1, paste, collapse = "_")
+fuzzy_match$ConcatRow <- apply(fuzzy_match, 1, paste, collapse = "_")
+
+# Extract the unique concatenated rows from fuzzy_match_high
+fuzzy_match_rows <- unique(fuzzy_match$ConcatRow)
+
+# Filter out rows from sv_20_bed and delly_bed that are in fuzzy_match_high
+filtered_sv_20_bed <- sv_20_bed %>% filter(!ConcatRow %in% fuzzy_match_rows)
+filtered_delly_bed <- delly_bed %>% filter(!ConcatRow %in% fuzzy_match_rows)
+
+# Filter out rows from exact_match that are not in fuzzy_match
+filtered_exact_bed <- exact_match %>% filter(!ConcatRow %in% fuzzy_match_rows)
+
+# Drop the ConcatRow column as it's no longer needed
+filtered_sv_20_bed <- filtered_sv_20_bed %>% select(-ConcatRow)
+filtered_delly_bed <- filtered_delly_bed %>% select(-ConcatRow)
+filtered_exact_bed <- filtered_exact_bed %>% select(-ConcatRow)
+
+# Check the filtered data frames
+print(head(filtered_sv_20_bed))
+print(head(filtered_delly_bed))
+print(head(filtered_exact_bed))
+
+
+```
+```{r}
+# Calculate the count of Exact matches not overlapping with Fuzzy
+exact_not_fuzzy <- nrow(filtered_exact_bed)
+
+# Create the data for the pie chart
+counts <- data.frame(
+  Category = c("Fuzzy (.75)", "Exact", "Delly Only", "PacBio SV Data Only"),
+  Count = c(nrow(fuzzy_match), # Fuzzy (.75) matches
+            exact_not_fuzzy, # Exact matches not overlapping with Fuzzy
+            nrow(filtered_delly_bed), # Delly Only
+            nrow(filtered_sv_20_bed)) # PacBio SV Data Only
+)
+
+# Calculate percentages
+counts <- counts %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Create the pie chart
+pie_chart <- ggplot(counts, aes(x = "", y = Count, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Variant Categories",
+       fill = "Category") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank()) +
+  geom_text(aes(label = paste0(Count, "\n(", round(Percentage, 1), "%)")),
+            position = position_stack(vjust = 0.5), size = 4)
+
+# Print the pie chart
+print(pie_chart)
+```
+
+
+
+---------------------NO LONGER COMPARING USING ALLELES-------------------------------------
+
+```{r}
+#save alleles for venn
+extractAlleles <- function(vcf){
+  paste(vcf$V2, vcf$V5, sep="_")
+}
+
+variants_sv <- extractAlleles(sv_vcf)
+variants_delly <- extractAlleles(delly_vcf)
+variants_exact <- extractAlleles(exact_match)
+variants_fuzzy_high <- extractAlleles(fuzzy_match_high)
+
+```
+
+
+```{r}
+# Create Venn Diagram for visual comparison
+venn.plot <- venn.diagram(
+  x = list(
+    SV_VCF = variants_sv,
+    Delly_VCF = variants_delly,
+    Exact_Matches = variants_exact,
+    Fuzzy_High = variants_fuzzy_high
+  ),
+  category.names = c("SV_VCF", "Delly_VCF", "Exact_Matches", "Fuzzy_High"),
+  filename = NULL
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+```
+
+
+```{r}
+venn.plot <- venn.diagram(
+  x = list(
+    Exact_Matches = variants_exact,
+    Fuzzy_High = variants_fuzzy_high
+  ),
+  category.names = c("Exact_Matches", "Fuzzy_High"),
+  filename = NULL
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+
+```
+
+
+```{r}
+# Calculate the overlaps
+overlap_sv_vcf_fuzzy <- length(intersect(sv_vcf_ids, fuzzy_match_high_ids))
+overlap_sv_vcf_exact <- length(intersect(sv_vcf_ids, exact_match_ids))
+overlap_fuzzy_exact <- length(intersect(fuzzy_match_high_ids, exact_match_ids))
+overlap_all <- length(intersect(intersect(sv_vcf_ids, fuzzy_match_high_ids), exact_match_ids))
+
+# Create Venn diagram
+venn_list <- list(
+  sv_vcf = sv_vcf_unique,
+  fuzzy_match_high = fuzzy_match_high_unique,
+  exact_match = exact_match_unique,
+  sv_vcf_fuzzy = overlap_sv_vcf_fuzzy,
+  sv_vcf_exact = overlap_sv_vcf_exact,
+  fuzzy_exact = overlap_fuzzy_exact,
+  all = overlap_all
+)
+
+venn.plot <- venn.diagram(
+  x = venn_list[1:3], # Exclude Delly data
+  category.names = names(venn_list)[1:3], # Exclude Delly data
+  filename = NULL
+)
+
+# Plot the Venn diagram
+grid.draw(venn.plot)
+grid.newpage()
+grid.draw(venn.plot)
+```
+```{r}
+
+#The original files without overlaps
+sv_vcf_20 <- read.table("svData.20.vcf",comment.char = "#", header = FALSE)
+#SV id is col v3
+#delly_vcf <- read.table("delly_20.shortRead.filtered.vcf", comment.char = "#",   header = FALSE)
+
+```
+
+```{r}
+#the bedtools intersect output files
+fuzzy_match_high <- read.delim("svData.intersect20_fuzzy.9...txt", header = FALSE)
+#SV id is col v32
+exact_match <- read.delim("svData.intersect20_fuzzy.100...txt", header = FALSE)
+#SV id is col v33
+fuzzy_match_half <- read.delim("svData.intersect20_fuzzy.5...txt", header = FALSE)
+
+```
+
+```{r}
+```
+
+```{r}
+#save alleles for venn
+extractAlleles <- function(vcf){
+  paste(vcf$V2, vcf$V5, sep="_")
+}
+
+variants_sv <- extractAlleles(sv_vcf_20)
+variants_delly <- extractAlleles(delly_vcf)
+variants_exact <- extractAlleles(exact_match)
+variants_fuzzy_high <- extractAlleles(fuzzy_match_high)
+variants_fuzzy_half <- extractAlleles(fuzzy_match_half)
+
+```
+
+
+```{r}
+#venn for alleles in common
+venn.plot <- venn.diagram(
+  x = list(
+    SV_VCF = variants_sv,
+    Delly_VCF = variants_delly,
+    Exact_Matches = variants_exact,
+    Fuzzy_High = variants_fuzzy_high,
+    Fuzzy_High = variants_fuzzy_half
+  ),
+  category.names = c("SV VCF Trios", "Delly\nVCF", "Exact_Matches", "Fuzzy High", "Fuzzy\nHalf"),
+  filename = NULL,
+  width = 25,  
+  height = 25,
+  category.cex = 0.25,
+   margin = 0.2
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+
+# Create Venn Diagram for visual comparison
+venn.plot <- venn.diagram(
+  x = list(
+    SV_VCF = variants_sv,
+    Delly_VCF = variants_delly,
+    Fuzzy_High = variants_fuzzy_high
+  ),
+  category.names = c("SV VCF Trios", "Delly\nVCF","Fuzzy High"),
+  filename = NULL,
+  width = 25,  
+  height = 25,
+  category.cex = 0.25,
+   margin = 0.2
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+
+# Create Venn Diagram for visual comparison
+venn.plot <- venn.diagram(
+  x = list(
+    SV_VCF = variants_sv,
+    Delly_VCF = variants_delly,
+    Fuzzy_Half = variants_fuzzy_half
+  ),
+  category.names = c("SV VCF Trios", "Delly\nVCF","Fuzzy Half"),
+  filename = NULL,
+  width = 25,  
+  height = 25,
+  category.cex = 0.25,
+   margin = 0.2
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+
+```
+
+```{r}
+library(openxlsx)
+# Number of PacBio SVs
+num_pacbio_svs <- nrow(sv_vcf_20)
+
+# Number of Delly SVs
+num_delly_svs <- nrow(delly_vcf)
+
+# Number of SVs in fuzzy high overlap
+num_fuzzy_high_overlap <- nrow(fuzzy_match_high)
+
+# Number of SVs in exact match
+num_exact_match <- nrow(exact_match)
+
+# Number of SVs in fuzzy half overlap
+num_fuzzy_half_overlap <- nrow(fuzzy_match_half)
+
+# Calculate fractions
+fraction_exact_match <- num_exact_match / num_pacbio_svs
+fraction_fuzzy_high_overlap <- num_fuzzy_high_overlap / num_pacbio_svs
+fraction_fuzzy_half_overlap <- num_fuzzy_half_overlap / num_pacbio_svs
+
+# Create a data frame for the results
+results_df <- data.frame(
+  "Number of PacBio SVs" = num_pacbio_svs,
+  "Number of Delly SVs" = num_delly_svs,
+  "Number of Fuzzy High Overlaps" = num_fuzzy_high_overlap,
+  "Number of Exact Matches" = num_exact_match,
+  "Number of Fuzzy Half Overlaps" = num_fuzzy_half_overlap,
+  "Fraction of Exact Matches" = fraction_exact_match,
+  "Fraction of Fuzzy High Overlaps" = fraction_fuzzy_high_overlap,
+  "Fraction of Fuzzy Half Overlaps" = fraction_fuzzy_half_overlap
+)
+
+# Save the results as an Excel file
+write.xlsx(results_df, "SV_Overlap_Delly.xlsx", rowNames = FALSE)
+
+```

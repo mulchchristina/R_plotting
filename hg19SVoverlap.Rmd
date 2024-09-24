@@ -1,0 +1,338 @@
+---
+title: "hg19SVoverlap"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+
+install.packages("rcartocolor")
+library(rcartocolor) 
+nColor <- 12 
+scales::show_col(carto_pal(nColor, "Safe")) 
+colorblind <- carto_pal(nColor, "Safe")
+
+```
+
+ 
+```{r}
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+```
+
+```{r}
+svData_unique <- svData %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+#all sv ids are unique
+```
+
+table of Omim phenotype data overlapping with mGap 2.5 Variants from predicted Damaging Vriants list where non blank values were selected from Predicted damaging Variants table from URL https://mgap.ohsu.edu/mgap/mGAP/variantList.view?release=20597#  20,135 entries were loaded into Rstudio and merged with the SV data by Common gene symbols between SVs and Omim/phenotype data. 
+
+```{r}
+
+Omim_data <- read.table('variantList_2024-02-27_14-20-08.tsv', sep = '\t', header = TRUE)
+
+```
+
+
+Merge Omim data svData
+```{r}
+
+#  left join
+svData_omim <- merge(svData, Omim_data, by.x = "OG", by.y = "overlappingGenes", all.x = TRUE)
+
+# Add OverlapsOmim column based on if data is there- cant use OG bc it was joined that way
+svData_omim$OverlapsOmim <- !is.na(svData_omim$omim_phenotype)
+
+```
+
+```{r}
+svData_omim <- svData_omim %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+```
+
+```{r}
+svIntersectExons <- read.table('svData.intersect.SVs.Exons.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectExons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+#add in exon overlaps 
+svData_omim <- merge(svData_omim, svIntersectExons, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+svData_omim$OverlapsExon <- !is.na(svData_omim$FEAT_START0)
+
+
+svData_omim <- svData_omim %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+
+
+```
+
+```{r}
+
+hg19clinical <- read.table('', header = T, row.names = NULL)
+colnames(hg19clinical)[colnames(hg19clinical) == "CHROM"] <- "hg19chrom"
+colnames(hg19clinical)[colnames(hg19clinical) == "POS"] <- "hg19clinSTART"
+colnames(hg19clinical)[colnames(hg19clinical) == "END"] <- "hg19clinEND"
+
+
+
+```
+
+```{r}
+hg19clinicalSVoverlap <- read.table('SV_hg19clinical_all_r_intersect.txt',  sep = '\t')[c(4, 5, 6, 7, 8, 9, 11, 12)]
+
+names(hg19clinicalSVoverlap) <- c('SV_ID','SVTYPE', 'hg19chrom', 'hg19clinSTART', 'hg19clinEND', 'SVTYPE_hg19', 'CLNSIG', 'INTERSECT_LENGTH')
+
+
+```
+
+
+
+# Check the updated column names
+colnames(hg19clinical)
+colnames(hg19clinicalSVoverlap)
+
+# Merge the data frames on common columns: chrom, start, and end
+hg19clinicalSVoverlap_allcol <- merge(hg19clinicalSVoverlap, hg19clinical, by = c('hg19chrom', 'hg19clinSTART', 'hg19clinEND'), all.x = TRUE)
+
+```{r}
+
+# Create a new column for pathogenic vs. not pathogenic
+hg19clinicalSVoverlap$Pathogenic <- ifelse(hg19clinicalSVoverlap$CLNSIG == "Pathogenic", "Pathogenic", "Not Pathogenic")
+
+hg19clinicalSVoverlap$MatchingSVTYPE <- ifelse(hg19clinicalSVoverlap$SVTYPE == hg19clinicalSVoverlap$SVTYPE_hg19, TRUE, FALSE)
+
+
+# Calculate counts of unique SV_ID by pathogenic vs. not pathogenic
+CLNSIG_counts <- with(hg19clinicalSVoverlap, table(Pathogenic))
+MatchingSVTYPE_counts <- with(hg19clinicalSVoverlap, table(MatchingSVTYPE))
+
+# Convert counts to data frames
+CLNSIG_counts_df <- data.frame(Category = "Pathogenic", Pathogenic = names(CLNSIG_counts), Count = as.numeric(CLNSIG_counts))
+MatchingSVTYPE_counts_df <- data.frame(Category = "MatchingSVTYPE", Pathogenic = names(MatchingSVTYPE_counts), Count = as.numeric(MatchingSVTYPE_counts))
+
+# Combine the data frames
+CLINSIG_MathingType <- rbind(CLNSIG_counts_df, MatchingSVTYPE_counts_df)
+
+# Create a bar plot
+ggplot(data = data.frame(Pathogenic = names(CLNSIG_counts), Count = as.numeric(CLNSIG_counts)),
+       aes(x = Pathogenic, y = Count, fill = Pathogenic)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Pathogenicity", y = "Count of unique SV_ID", title = "unique SV_ID counts for Overlapping SVs with Clinically signifigant hg19 SVs ") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(CLINSIG_MathingType, aes(x = Pathogenic, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Category", y = "Count", title = "Counts for Pathogenicity and Matching SVTYPE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = colorblind[1:2])
+
+```
+```{r}
+Pathogenic_sameType_hg19clinicalSVoverlap <- subset(hg19clinicalSVoverlap, Pathogenic == "Pathogenic" & MatchingSVTYPE == TRUE)
+
+# Merge with svData_omim based on SV_ID
+Pathogenic_sameType_hg19clinicalSVoverlap_withSvdata <- merge(Pathogenic_sameType_hg19clinicalSVoverlap, svData_omim, by = "SV_ID", all.x = TRUE, all.y = FALSE)
+
+Pathogenic_sameType_hg19clinicalSVoverlap_withSvdata <- Pathogenic_sameType_hg19clinicalSVoverlap_withSvdata %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+write.xlsx(Pathogenic_sameType_hg19clinicalSVoverlap_withSvdata, "Pathogenic_sameType_hg19clinicalSVoverlap_withSvdata.xlsx", rowNames = FALSE)
+
+```
+
+
+```{r}
+#add in common overlaps 
+svDataIntersectHG19clinical <- merge(svData_omim, hg19clinicalSVoverlap, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+
+
+svDataIntersectHG19clinical$OverlapsHG19Clinical <- !is.na(svDataIntersectHG19clinical$hg19chrom)
+
+```
+
+```{r}
+write.csv(svDataIntersectHG19clinical, "svDataIntersectHG19clinical.csv", row.names = FALSE)
+#write.xlsx(svDataIntersectHG19clinical, "svDataIntersectHG19clinical.xlsx")
+
+```
+
+```{r}
+
+hg19SVoverlap <- read.table('svData.intersect.SVs.hg19_SVs.txt',  sep = '\t')[c(4, 5, 6, 7, 9)]
+
+names(hg19SVoverlap) <- c('SV_ID', 'hg19SVchrom', 'hg19SVSTART', 'hg19SVEND', 'INTERSECT_LENGTH_hg19SV')
+
+svDataIntersect_hg19 <- merge(svDataIntersectHG19clinical, hg19SVoverlap, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+
+
+
+
+svDataIntersect_hg19$OverlapsSVCommon <- !is.na(svDataIntersect_hg19$hg19SVchrom)
+
+```
+
+```{r}
+
+hg19gnomadoverlap <- read.table('svData.intersect.SVs.hg19_gnomadSVs.txt',  sep = '\t')[c(4, 5, 6, 7, 9)]
+
+names(hg19gnomadoverlap) <- c('SV_ID', 'hg19gnomadchrom', 'hg19gnomadSTART', 'hg19gnomadEND', 'INTERSECT_LENGTH_hg19gnomad')
+
+#svDataIntersect_hg19 <- merge(svDataIntersect_hg19, hg19gnomadoverlap, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+
+
+
+
+#svDataIntersect_hg19$OverlapsSVgnomad <- !is.na(svDataIntersect_hg19$hg19gnomadchrom)
+
+```
+
+
+```{r}
+library(tidyr)
+
+# Calculate the fraction of total SVs with overlaps
+hg19overlap_summary <- svDataIntersect_hg19 %>%
+  summarise(
+    Total_SVs = n(),
+    HG19Clinical = sum(OverlapsHG19Clinical, na.rm = TRUE) / Total_SVs,
+    SVCommon = sum(OverlapsSVCommon, na.rm = TRUE) / Total_SVs,
+    SVgnomad = sum(OverlapsSVgnomad, na.rm = TRUE) / Total_SVs
+  ) %>%
+  gather(key = "OverlapType", value = "Fraction", -Total_SVs)
+
+# Include SVTYPE, AF, and IMPACT
+sv_summaryhg19 <- svDataIntersect_hg19 %>%
+  group_by(SVTYPE, AF, IMPACT) %>%
+  summarise(
+    Total_SVs = n(),
+    HG19Clinical = sum(OverlapsHG19Clinical, na.rm = TRUE) / Total_SVs,
+    SVCommon = sum(OverlapsSVCommon, na.rm = TRUE) / Total_SVs,
+    SVgnomad = sum(OverlapsSVgnomad, na.rm = TRUE) / Total_SVs
+  ) %>%
+  gather(key = "OverlapType", value = "Fraction", -SVTYPE, -AF, -IMPACT, -Total_SVs)
+
+# Plotting the results
+ggplot(sv_summaryhg19, aes(x = SVTYPE, y = Fraction, fill = OverlapType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(AF ~ IMPACT) +
+  labs(
+    title = "Fraction of Total SVs with Overlaps by SVTYPE, AF, and IMPACT",
+    x = "SVTYPE",
+    y = "Fraction of SVs",
+    fill = "Overlap Type"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+
+# Calculate the total count of unique SVs for each combination of IMPACT and SVTYPE
+svDatacounts <- svDataIntersectHG19clinical %>%
+  group_by(IMPACT, SVTYPE) %>%
+  summarise(total_sv = n_distinct(SV_ID))
+
+# Calculate the count of SVs with OverlapsHG19clinical = TRUE for each combination of IMPACT, SVTYPE, and OverlapsHG19clinical
+overlap_count <- svDataIntersectHG19clinical %>%
+  filter(OverlapsHG19Clinical) %>%
+  group_by(IMPACT, SVTYPE) %>%
+  summarise(overlap_sv = n_distinct(INTERSECT_LENGTH.y))
+
+# Merge the total count and overlap count data frames
+hg19CLinicalcountssum <- merge(svDatacounts, overlap_count, by = c("IMPACT", "SVTYPE"), all = TRUE)
+
+# Calculate the fraction of overlapping SVs
+hg19CLinicalcountssum$fraction <- hg19CLinicalcountssum$overlap_sv / hg19CLinicalcountssum$total_sv
+
+
+
+```
+
+```{r}
+ggplot(overlap_count, aes(x = IMPACT, y = overlap_sv, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Overlapping SVs with hg19 Clinical SVs", x = "Impact", y = "Overlapping SVs") +
+  theme_minimal()
+
+
+
+
+```
+
+```{r}
+
+# Scatter plot
+ggplot(hg19CLinicalcountssum, aes(x = total_sv, y = fraction, color = IMPACT)) +
+  geom_point() +
+  labs(title = "Fraction of Overlapping SVs vs. Total Count of SVs",
+       x = "Total Count of SVs",
+       y = "Fraction of Overlapping SVs",
+       color = "Impact") +
+  theme_minimal()
+```
+
+
+
+```{r}
+library(dplyr)
+
+# Assuming svDataIntersectHG19clinical is your data frame
+
+# Calculate the total count of unique SVs for each combination of IMPACT and SVTYPE
+svDatacounts <- svDataIntersectHG19clinical %>%
+  group_by(IMPACT, SVTYPE) %>%
+  summarise(total_sv = n_distinct(SV_ID))
+
+# Calculate the count of SVs with OverlapsHG19clinical = TRUE for each combination of IMPACT, SVTYPE, and OverlapsHG19clinical
+overlap_count <- svDataIntersectHG19clinical %>%
+  filter(OverlapsHG19Clinical == TRUE) %>%
+  group_by(IMPACT, SVTYPE) %>%
+  summarise(overlap_sv = n_distinct(SV_ID))
+
+# Merge the total count and overlap count data frames
+hg19CLinicalcountssum <- merge(svDatacounts, overlap_count, by = c("IMPACT", "SVTYPE"), all = TRUE)
+
+# Replace NA values in overlap_sv with 0
+hg19CLinicalcountssum$overlap_sv[is.na(hg19CLinicalcountssum$overlap_sv)] <- 0
+
+# Calculate the fraction of overlapping SVs
+hg19CLinicalcountssum$fraction <- hg19CLinicalcountssum$overlap_sv / hg19CLinicalcountssum$total_sv
+
+# Print the summary table
+print(hg19CLinicalcountssum)
+
+
+# Add the OverlapsHG19clinical column for faceting
+hg19CLinicalcountssum <- svDataIntersectHG19clinical %>%
+  mutate(OverlapsHG19Clinical = ifelse(OverlapsHG19Clinical == TRUE, "TRUE", "FALSE")) %>%
+  group_by(IMPACT, SVTYPE, OverlapsHG19Clinical) %>%
+  summarise(total_sv = n_distinct(SV_ID)) %>%
+  ungroup()
+
+# Plot
+ggplot(hg19CLinicalcountssum, aes(x = SVTYPE, y = total_sv)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ OverlapsHG19Clinical, scales = "free_y") +
+  labs(title = "SV Counts of Overlaps with hg19 clinical SVs by SVTYPE", x = "SVTYPE", y = "Total SV Count", fill = "IMPACT") +
+  theme_minimal()
+
+```

@@ -1,0 +1,1997 @@
+--
+title: "Paragraph"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+
+#knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory/para_func_filtering")
+
+
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(rcartocolor)
+library(gridExtra)
+library(scales)
+
+nColor_paragraph <- 200
+scales::show_col(carto_pal(nColor, "Safe"))
+colorblind_paragraph <- carto_pal(nColor, "Safe")
+
+
+```
+
+
+```{r}
+
+allSVs_paragraph <- read.table('Paragraph.all.table.txt.gz', header = TRUE)
+
+allSVs_paragraph$REF_LENGTH[allSVs_paragraph$SVTYPE == 'DEL'] <- abs(allSVs_paragraph$SVLEN)[allSVs_paragraph$SVTYPE == 'DEL']
+allSVs_paragraph$REF_LENGTH[allSVs_paragraph$SVTYPE == 'DUP'] <- abs(allSVs_paragraph$SVLEN)[allSVs_paragraph$SVTYPE == 'DUP']
+allSVs_paragraph$REF_LENGTH[allSVs_paragraph$SVTYPE == 'INV'] <- abs(allSVs_paragraph$SVLEN)[allSVs_paragraph$SVTYPE == 'INV']
+
+allSVs_paragraph$REF_LENGTH[allSVs_paragraph$SVTYPE == 'INS'] <- 1
+
+```
+First lets take a look at AF differences
+
+```{r}
+paragraph_AF_compare <- allSVs_paragraph %>%
+  left_join(allSVs %>% select(ID, AF), by = "ID") %>%
+  rename(PacBio_AF = AF.x, Paragraph_AF = AF.y)
+
+paragraph_AF_compare <- paragraph_AF_compare %>%
+  mutate(AF_diff = Paragraph_AF - PacBio_AF)
+
+paragraph_AF_compare %>%
+  filter(AF_diff != 0)
+
+ggplot(paragraph_AF_compare, aes(x = PacBio_AF, y = Paragraph_AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = colorblind) +
+  labs(title = "Pairwise AF Differences by SV Type",
+       x = "PacBio AF",
+       y = "Paragraph AF") +
+  theme_minimal()
+
+ggplot(paragraph_AF_compare, aes(x = AF_diff, fill = SVTYPE)) +
+  geom_histogram(binwidth = 0.01, alpha = 0.7, position = 'identity') +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Distribution of AF Differences",
+       x = "AF Difference (Paragraph AF - PacBio AF)",
+       y = "Count") +
+  theme_minimal()
+
+ggplot(paragraph_AF_compare, aes(x = SVTYPE, y = AF_diff, fill = SVTYPE)) +
+  geom_boxplot() +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "AF Differences by SV Type",
+       x = "SV Type",
+       y = "AF Difference (Paragraph AF - PacBio AF)") +
+  theme_minimal()
+
+```
+```{r}
+
+
+
+# Merge the datasets
+paragraph_AF_compare <- allSVs_paragraph %>%
+  left_join(allSVs %>% select(ID, AF, SVTYPE, REF_LENGTH), by = "ID") %>%
+  rename(PacBio_AF = AF.x, Paragraph_AF = AF.y, PacBio_SVTYPE = SVTYPE.x, Paragraph_SVTYPE = SVTYPE.y, PacBio_REF_LENGTH = REF_LENGTH.x, Paragraph_REF_LENGTH = REF_LENGTH.y)
+
+# Calculate pairwise differences in AF
+paragraph_AF_compare <- paragraph_AF_compare %>%
+  mutate(AF_diff = Paragraph_AF - PacBio_AF)
+
+# Filter for non-zero AF_diff entries
+non_zero_AF_diff <- paragraph_AF_compare %>%
+  filter(AF_diff != 0)
+
+print(non_zero_AF_diff)
+
+svtype_discrepancies <- paragraph_AF_compare %>%
+  filter(PacBio_SVTYPE != Paragraph_SVTYPE)
+
+print(svtype_discrepancies)
+
+# Compare other categories: REF_LENGTH discrepancies (absolute differences greater than a threshold, e.g., 10)
+reflength_discrepancies <- paragraph_AF_compare %>%
+  filter(abs(PacBio_REF_LENGTH - Paragraph_REF_LENGTH) > 10)
+
+print(reflength_discrepancies)
+
+
+ggplot(paragraph_AF_compare, aes(x = PacBio_AF, y = Paragraph_AF, color = Paragraph_SVTYPE)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = colorblind) +
+  labs(title = "Pairwise AF Differences by SV Type",
+       x = "PacBio AF",
+       y = "Paragraph AF") +
+  theme_minimal()
+
+ggplot(paragraph_AF_compare, aes(x = AF_diff, fill = Paragraph_SVTYPE)) +
+  geom_histogram(binwidth = 0.01, alpha = 0.7, position = 'identity') +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Distribution of AF Differences",
+       x = "AF Difference (Paragraph AF - PacBio AF)",
+       y = "Count") +
+  theme_minimal()
+
+ggplot(paragraph_AF_compare, aes(x = Paragraph_SVTYPE, y = AF_diff, fill = Paragraph_SVTYPE)) +
+  geom_boxplot() +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "AF Differences by SV Type",
+       x = "SV Type",
+       y = "AF Difference (Paragraph AF - PacBio AF)") +
+  theme_minimal()
+
+ggplot(svtype_discrepancies, aes(x = PacBio_SVTYPE, y = Paragraph_SVTYPE, color = Paragraph_SVTYPE)) +
+  geom_jitter(alpha = 0.6) +
+  scale_color_manual(values = colorblind) +
+  labs(title = "SVTYPE Discrepancies",
+       x = "PacBio SVTYPE",
+       y = "Paragraph SVTYPE") +
+  theme_minimal()
+
+ggplot(reflength_discrepancies, aes(x = PacBio_REF_LENGTH, y = Paragraph_REF_LENGTH, color = Paragraph_SVTYPE)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = colorblind) +
+  labs(title = "REF_LENGTH Discrepancies",
+       x = "PacBio REF_LENGTH",
+       y = "Paragraph REF_LENGTH") +
+  theme_minimal()
+```
+
+------------------
+```{r}
+
+exonOverlaps_paragraph_paragraph <- unique(read.table('exon_overlap.vcf.gz'))
+cdsOverlaps_paragraph_paragraph <- unique(read.table('cds_overlap.vcf.gz'))
+fullGeneOverlaps_paragraph_paragraph <- unique(read.table('gene_overlap.vcf.gz'))
+
+```
+
+
+
+
+
+
+
+```{r}
+
+cvOverlap_paragraph <- unique(read.table('clinvarOverlap.txt.gz', header = F)) 
+cvOverlap_paragraph <- cvOverlap[c('V3', 'V71')]
+names(cvOverlap_paragraph) <- c('ID', 'ClinVarId')
+
+cvOverlap_paragraph <- merge(cvOverlap_paragraph, cvData[c('ID', 'REF', 'ALT', 'SVTYPE', 'SVLEN', 'CLNSIG')], by.x= 'ClinVarId', by.y = 'ID', all.x = TRUE)
+cvOverlap_paragraph_paragraph <- cvOverlap_paragraph %>% filter(!is.na(CLNSIG))
+names(cvOverlap_paragraph) <- c('ClinVarId', 'ID', 'CLN.REF', 'CLN.ALT', 'CLN.SVTYPE', 'CLN.SVLEN', 'CLNSIG')
+
+
+```
+
+
+```{r}
+
+DBVAR_75_Overlaps_paragraph <- unique(read.table('dbvarCommonOverlap.75.txt.gz', header = F, sep = '\t', quote = ''))
+
+DBVAR_75_Overlaps_paragraph <- DBVAR_75_Overlaps[c('V1', 'V2', 'V3', 'V71', 'V72', 'V73')]
+names(DBVAR_75_Overlaps) <- c('CHROM', 'POS', 'ID', 'DBVARID', 'DBVAR.REF', 'DBVAR.ALT')
+
+DBVAR_75_Overlaps_paragraph <- merge(DBVAR_75_Overlaps, DBVARAll[c('ID', 'SVTYPE')], by.x = 'DBVARID', by.y = 'ID', all.x = TRUE)
+names(DBVAR_75_Overlaps)[names(DBVAR_75_Overlaps) == 'SVTYPE'] <- 'DBVAR.SVTYPE'
+
+```
+
+```{r}
+
+gnomadOverlaps_paragraph <- unique(read.table('gnomadCommonOverlap.txt.gz', header = F, sep = '\t', quote = ''))
+gnomadOverlaps_paragraph <- gnomadOverlaps[c('V1', 'V2', 'V3', 'V71', 'V72', 'V73')]
+names(gnomadOverlaps) <- c('CHROM', 'POS', 'ID', 'GnomadID', 'Gnomad.REF', 'Gnomad.ALT')
+
+gnomadOverlaps_paragraph <- merge(gnomadOverlaps, gnomadAll[c('ID', 'SVTYPE')], by.x = 'GnomadID', by.y = 'ID', all.x = TRUE)
+names(gnomadOverlaps)[names(gnomadOverlaps) == 'SVTYPE'] <- 'Gnomad.SVTYPE'
+```
+
+
+
+#resoveloc genes
+
+
+
+```{r}
+#allSVs_paragraph_paragraph <- read.table('PacBioSubsets.all.table.txt.gz', header = TRUE)
+allSVs_paragraph <- AugmentTable(allSVs_paragraph)
+
+allSVs_paragraph$ABS_SVLEN_paragraph <- abs(allSVs_paragraph$SVLEN)
+
+allSVs_paragraph$LengthBin <- dplyr::case_when( 
+  allSVs_paragraph$ABS_SVLEN < 50 ~ '<50',
+  allSVs_paragraph$ABS_SVLEN > 50 & allSVs_paragraph$ABS_SVLEN < 200 ~ '50-200',
+  allSVs_paragraph$ABS_SVLEN > 200 & allSVs_paragraph$ABS_SVLEN < 1000 ~ '200-1000',
+  allSVs_paragraph$ABS_SVLEN > 1000 & allSVs_paragraph$ABS_SVLEN < 5000 ~ '1000-5000'
+)
+
+```
+
+#all loc genes
+
+are we doing the mapping in an optiomal way
+
+```{r}
+# Double check CLN overlap:
+cvOverlap_paragraph <- merge(cvOverlap, allSVs_paragraph[c('ID', 'REF', 'ALT', 'SVTYPE', 'SVLEN', 'LiftedToHuman')], by = 'ID', all.x = TRUE)
+cvOverlap
+
+#also consider  the count of ClinVarByGene
+unique_non_blank_clinvar_by_gene_ids_paragraph <- allSVs_paragraph %>%
+  filter(!is.na(ClinVarByGene)) %>%
+  summarize(unique_ids = n_distinct(ID))
+unique_non_blank_clinvar_by_gene_ids
+
+gnomadOverlaps_paragraph <- merge(gnomadOverlaps_paragraph, allSVs_paragraph[c('ID', 'REF', 'ALT', 'SVTYPE', 'SVLEN', 'LiftedToHuman')], by = 'ID', all.x = TRUE)
+gnomadOverlaps_paragraph
+
+
+```
+
+updated
+```{r}
+allSVs_paragraph$Interpretation <- NA
+
+allSVs_paragraph$RegionName <- NA
+
+allSVs_paragraph$RegionName[allSVs_paragraph$CHROM == 4 & allSVs_paragraph$POS > 136900000 & allSVs_paragraph$END < 140566506] <- 'MHC'
+allSVs_paragraph$RegionName[allSVs_paragraph$CHROM %in% c('NW_021160159.1', 'NW_021160161.1')]_paragraph <- 'MHC'
+allSVs_paragraph$RegionName[allSVs_paragraph$CHROM == 7 & allSVs_paragraph$POS > 83500000 & allSVs_paragraph$END < 84500000] <- 'TCR-A'
+allSVs_paragraph$RegionName[allSVs_paragraph$CHROM == 4 & allSVs_paragraph$POS > 168000000 & allSVs_paragraph$END < 169400000] <- 'TCR-B'
+allSVs_paragraph$RegionName[allSVs_paragraph$CHROM == 4 & allSVs_paragraph$POS > 76700000 & allSVs_paragraph$END < 76900000] <- 'TCR-G'
+
+
+```
+
+updated
+```{r}
+wb = openxlsx::createWorkbook()
+
+AddSheet_paragraph <- function(wb, sheetName, df) {
+  df_paragraph <- df %>%
+    select(SVTYPE, CHROM, POS, SVLEN, AF, IMPACT, HIG2, VE, overlappingFullGene2, overlappingExon2, OMIM, ClinVarId, ClinVarByGene, dplyr::everything()) %>%
+    select(-overlappingFullGene) %>%
+    select(-overlappingExon) %>%
+    select(-overlappingCDS) %>%
+    select(-HIG) %>%
+    rename(
+      'SV Type' = SVTYPE,
+      'Chromosome' = CHROM,
+      'Position' = POS,
+      'SV Length' = SVLEN,
+      'Protein Coding Impact' = IMPACT,
+      'Overlapping Genes With High-Impact' = HIG2,
+      'Variant Effect' = VE,
+      'Full Genes Overlapped' = overlappingFullGene2,
+      'Overlapping Exons' = overlappingExon2,
+      'Overlapping CDS' = overlappingCDS2,
+      'OMIM Phenotype(s)' = OMIM,
+      'ClinVar (Near-Identical)' = ClinVarId,
+      'ClinVar (Same Gene)' = ClinVarByGene,
+      'SV ID' = ID,
+      'Reference Allele' = REF,
+      'Alt Allele' = ALT,
+      '# Called' = NCALLED,
+      '# Het' = HET,
+      '# HomRef' = HOM.REF,
+      '# HomVar' = HOM.VAR,
+      'OMIM ID' = MIMNUMBER,
+      'Overlaps Full Gene?' = overlapsFullGene,
+      'Mobile Element' = ME,
+      'Overlaps CDS?' = overlapsCDS,
+      'Overlaps Exon?' = overlapsExon,
+      'Overlapping Gene(s)' = OG,
+      'Lifted To Human?' = LiftedToHuman
+    )
+  
+  
+  sheet_paragraph <- openxlsx::addWorksheet(wb = wb, sheetName = sheetName)
+  openxlsx::writeDataTable(wb, sheet, colNames = TRUE, x = df)
+  openxlsx::freezePane(wb, sheet, firstRow = TRUE)
+  openxlsx::conditionalFormatting(wb = wb, sheet = sheet, type = 'colourScale', style = c('red', 'green'), cols = 5, rows = 2:50000)  
+  openxlsx::setColWidths(wb, sheet, cols = c(2,3), widths = "auto")
+  openxlsx::setColWidths(wb, sheet, cols = c(7, 8, 9, 10, 12, 14, 22, 23), widths = 28)
+  openxlsx::setColWidths(wb, sheet, cols = c(13), widths = 29)
+  openxlsx::setColWidths(wb, sheet, cols = c(11), widths = 40)
+  openxlsx::setColWidths(wb, sheet, cols = c(16, 17), widths = 20)
+  openxlsx::setColWidths(wb, sheet, cols = c(1:4, 15), widths = 14)
+  
+  openxlsx::conditionalFormatting(wb = wb, sheet = sheet, type = 'colourScale', style = c('red', 'green'), cols = 26, rows = 2:50000)  
+  openxlsx::conditionalFormatting(wb = wb, sheet = sheet, type = 'colourScale', style = c('red', 'green'), cols = 27, rows = 2:50000)  
+  openxlsx::conditionalFormatting(wb = wb, sheet = sheet, type = 'colourScale', style = c('red', 'green'), cols = 29, rows = 2:50000)  
+  openxlsx::conditionalFormatting(wb = wb, sheet = sheet, type = 'colourScale', style = c('red', 'green'), cols = 30, rows = 2:50000)  
+  
+  openxlsx::addStyle(wb, sheet = sheet, openxlsx::createStyle(valign = 'top'), rows = 2:50000, cols = 1:ncol(df), gridExpand = T)
+  openxlsx::addStyle(wb, sheet = sheet, openxlsx::createStyle(wrapText = TRUE, valign = 'top'), rows = 2:50000, cols = c(7, 8, 9, 10, 11, 12, 13, 16, 17), gridExpand = TRUE)
+  openxlsx::addStyle(wb, sheet = sheet, openxlsx::createStyle(numFmt = 'COMMA', valign = 'top'), rows= 2:50000, cols = c(3, 4, 15), gridExpand = TRUE)
+  
+  for (idx in c(9,11,12,13)) {
+    openxlsx::conditionalFormatting(wb, sheet,
+      cols = idx,
+      rows = 2:50000, 
+      rule = "!=0", 
+      style =  createStyle(bgFill = "#D3D3D3"),
+      gridExpand = TRUE
+    )
+  }
+}
+
+allSVs_paragraph$IsComplexRegion <- !is.na(allSVs_paragraph$RegionName) | 
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'Immunoglobulin heavy', ignore.case = TRUE) |
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'Immunoglobulin light', ignore.case = TRUE) |
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'immunoglobulin lambda', ignore.case = TRUE) |
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'immunoglobulin kappa', ignore.case = TRUE) |
+  
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'histocompatibility antigen', ignore.case = TRUE) |
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'olfactory receptor', ignore.case = TRUE) |
+  grepl(allSVs_paragraph$overlappingExon2, pattern = 'T cell receptor', ignore.case = TRUE)
+
+AddSheet(wb, "High-Impact (Rare)", df = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF < 0.15) %>% filter(!IsComplexRegion))
+AddSheet(wb, "High-Impact (Not Rare)", df = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF >= 0.15) %>% filter(!IsComplexRegion))
+AddSheet(wb, "Overlaps Full Gene", df = allSVs_paragraph %>% filter(overlapsFullGene) %>% filter(!IsComplexRegion))
+AddSheet(wb, "SVLEN >10K (Exonic)", df = allSVs_paragraph %>% filter(SVLEN > 10000 & overlapsExon) %>% filter(!IsComplexRegion))
+AddSheet(wb, "AF >0.98", df = allSVs_paragraph %>% filter(AF >0.98) %>% filter(!IsComplexRegion))
+AddSheet(wb, "ClinVar (Identical)", df = allSVs_paragraph %>% filter(!is.na(ClinVarId)) %>% filter(!IsComplexRegion))
+AddSheet(wb, "ClinVar (Same Gene, Exonic)", df = allSVs_paragraph %>% filter(!is.na(ClinVarByGene)) %>% filter(abs(SVLEN) < 5000 & overlapsExon & !is.na(IMPACT)) %>% filter(!IsComplexRegion))
+AddSheet(wb, "Within Complex Region", df = allSVs_paragraph %>% filter(IsComplexRegion))
+
+sheet_paragraph <- openxlsx::addWorksheet(wb = wb, sheetName = 'LOC Gene Translation')
+openxlsx::writeDataTable(wb, sheet, colNames = TRUE, x = locGeneData)
+openxlsx::freezePane(wb, sheet, firstRow = TRUE)
+
+openxlsx::saveWorkbook(wb,  'PacBioMarquee_paragraph.xlsx', overwrite = TRUE)
+
+
+
+```
+
+
+```{r}
+# Summaries:
+#summaries of allSVs_paragraph and clinVar input
+
+
+ggplot(allSVs_paragraph, aes(x = SVTYPE)) +
+  geom_bar(fill = colorblind[1]) +
+  theme_minimal() +
+  labs(title = "Distribution of SV Types", x = "SV Type", y = "Count")
+
+ggplot(cvData, aes(x = CLNSIG)) +
+  geom_bar(fill = colorblind[4]) +
+  theme_minimal() +
+  labs(title = "ClinVar Significance Distribution", x = "ClinVar Significance", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(allSVs_paragraph, aes(x =SVLEN)) +
+  geom_histogram(binwidth = 1, fill = colorblind[2]) +
+  theme_minimal() +
+  labs(title = "SV Length Distribution", x = "SV Length", y = "Count") +
+
+
+ggplot(allSVs_paragraph %>% filter(IMPACT == "HIGH"), aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = colorblind[3]) +
+  theme_minimal() +
+  labs(title = "Frequency of High-Impact SVs", x = "Allele Frequency", y = "Count") +
+  scale_x_log10()
+
+```
+
+
+```{r}
+
+#use the common set of bins for following summaries
+bin_AF_paragraph <- function(AF) {
+  case_when(
+    AF < 0.01 ~ "singletons",
+    AF >= 0.01 & AF < 0.05 ~ "low frequency",
+    AF >= 0.05 & AF < 0.25 ~ "medium frequency",
+    AF >= 0.25 ~ "common"
+  )
+}
+
+bin_SVLEN_paragraph <- function(SVLEN) {
+  case_when(
+    SVLEN <= 50 ~ "0-50",
+    SVLEN > 50 & SVLEN <= 100 ~ "50-100",
+    SVLEN > 100 & SVLEN <= 300 ~ "100-300",
+    SVLEN > 300 & SVLEN <= 350 ~ "300-350 (ALU)",
+    SVLEN > 350 & SVLEN <= 500 ~ "350-500",
+    SVLEN > 500 & SVLEN <= 1000 ~ "500-1000",
+    SVLEN > 1000 & SVLEN <= 2000 ~ "1000-2000",
+    SVLEN > 2000 & SVLEN <= 10000 ~ "2000-10000",
+    SVLEN > 10000 ~ "greater than 10k"
+  )
+}
+
+allSVs_paragraph_paragraph <- allSVs_paragraph %>%
+  mutate(bin_AF = sapply(AF, bin_AF),
+         bin_SVLEN = sapply(SVLEN, bin_SVLEN))
+
+
+```
+
+Summaries of Lifted vs not
+```{r}
+total_svs_paragraph <- nrow(allSVs_paragraph)
+
+# Calculate lifted fraction relative to total SVs- this should work
+lifted_fraction_paragraph <- allSVs_paragraph %>%
+  group_by(SVTYPE, SVLEN, AF, LiftedToHuman, bin_AF, bin_SVLEN) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(fraction = (count / total_svs) * 100)
+
+overall_fraction_paragraph <- allSVs_paragraph %>%
+  group_by(SVLEN, AF, LiftedToHuman, bin_AF) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(fraction = (count / total_svs) * 100,
+         SVTYPE = "Overall",  
+         bin_SVLEN = "Overall") 
+
+
+withTotal_fraction_paragraph <- bind_rows(lifted_fraction, overall_fraction)
+
+
+
+ggplot(withTotal_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ bin_SVLEN, scales = "free")
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(lifted_fraction, aes(x = "", y = fraction, fill = factor(LiftedToHuman))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19",
+       x = "",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+
+
+```
+
+```{r}
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_density(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ SVLEN, scales = "free")
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ bin_SVLEN, scales = "free")
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(bin_SVLEN))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+```
+Summaries of counts of different features
+```{r}
+# Count lifted to hg19
+lifted_count_paragraph <- nrow(liftedData)
+cat("Number of lifted variants to hg19:", lifted_count, "\n")
+
+LiftedToHg19Count_paragraph <- nrow(allSVs_paragraph$LiftedToHuman)
+cat("Number of lifted variants to hg19:", lifted_count, "\n")
+
+# Count rows with OMIM data
+omim_count_paragraph <- nrow(omimData)
+cat("Number of rows with OMIM data:", omim_count, "\n")
+
+# gnomadOverlaps by SVTYPE
+gnomad_counts_paragraph <- gnomadOverlaps %>% 
+  group_by(Gnomad.SVTYPE) %>% 
+  summarise(count = n())
+print(gnomad_counts)
+
+# cvOverlap by SVTYPE
+cv_counts_paragraph <- cvOverlap %>% 
+  group_by(CLN.SVTYPE) %>% 
+  summarise(count = n())
+print(cv_counts)
+
+
+
+
+```
+
+Following up with the lifted fraction to ensure removing binning doesnt change the trend
+```{r}
+lifted_fraction_paragraph <- allSVs_paragraph %>%
+  group_by(SVTYPE, SVLEN, LiftedToHuman) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(SVTYPE, SVLEN) %>%
+  mutate(total = sum(count),
+         fraction = (count / total) * 100)
+
+# Plot
+ggplot(lifted_fraction, aes(x = SVLEN, y = fraction, fill = factor(LiftedToHuman))) +
+  geom_count(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ SVTYPE, scales = "free")
+
+```
+high level summaries of allSVs_paragraph
+```{r}
+
+#log scale for Allele Freq
+ggplot(allSVs_paragraph, aes(x = AF, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10('Allele Frequency', breaks = scales::trans_breaks('log10', function(x) 10^x), labels = scales::trans_format('log10', scales::math_format(10^.x))) +
+  labs(title = 'Allele Frequency Distribution by SV Type') +
+  scale_fill_carto_d(palette = "Safe")
+
+#regular scale from 0 to 1 for AF
+ggplot(allSVs_paragraph, aes(x = AF, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous('Allele Frequency', limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  labs(title = 'Allele Frequency Distribution by SV Type') +
+  scale_fill_carto_d(palette = "Safe")
+
+ggplot(allSVs_paragraph %>% filter(IMPACT != '.'), aes(x = IMPACT, fill = SVTYPE)) +
+  geom_bar() +
+  scale_y_log10('Count') +
+  labs(title = 'SV Impact by SV Type') +
+  scale_fill_carto_d(palette = "Safe")
+
+ggplot(allSVs_paragraph, aes(x = IMPACT, fill = SVTYPE)) +
+  geom_bar() +
+  scale_y_log10('Count') +
+  labs(title = 'SV Impact by SV Type') +
+  scale_fill_carto_d(palette = "Safe")
+
+plot_totals_paragraph <- allSVs_paragraph %>%
+  group_by(IMPACT, SVTYPE) %>%
+  summarise(count = n(), .groups = 'drop')
+total_sum_paragraph <- plot_totals %>%
+  summarise(IMPACT = "Total", SVTYPE = "Total", count = sum(count))
+
+
+# Add total sum row to totals
+plot_totals_paragraph <- bind_rows(plot_totals, total_sum)
+
+
+ImpactAllPlot_paragraph <- ggplot(allSVs_paragraph, aes(x = IMPACT, fill = SVTYPE)) +
+  geom_bar(position = "stack") +
+  scale_y_continuous('Count', breaks = seq(0, max(plot_totals$count, na.rm = TRUE), by = 50000)) +
+  labs(title = 'SV Impact by SV Type') +
+  scale_fill_carto_d(palette = "Safe")
+ 
+#print below
+table_paragraph <- tableGrob(plot_totals)
+grid.arrange(ImpactAllPlot, table, ncol = 2, widths = c(1, 1))
+ggplot(allSVs_paragraph %>% filter(overlapsExon), aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10('SV Length', breaks = scales::trans_breaks('log10', function(x) 10^x), labels = scales::trans_format('log10', scales::math_format(10^.x))) +
+  labs(title = 'SV Length of SVs Overlapping Exons') +
+  scale_fill_carto_d(palette = "Safe")
+
+ggplot(allSVs_paragraph %>% filter(overlapsFullGene), aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10('SV Length', breaks = scales::trans_breaks('log10', function(x) 10^x), labels = scales::trans_format('log10', scales::math_format(10^.x))) +
+  labs(title = 'SV Length of SVs Overlapping full genes') +
+  scale_fill_carto_d(palette = "Safe")
+
+ggplot(allSVs_paragraph, aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10('SV Length', breaks = scales::trans_breaks('log10', function(x) 10^x), labels = scales::trans_format('log10', scales::math_format(10^.x))) +
+  labs(title = 'SV Length of All SVs ') +
+  scale_fill_carto_d(palette = "Safe")
+
+#no log scale
+ggplot(allSVs_paragraph %>% filter(overlapsFullGene), aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous('SV Length', limits = c(0, 20000), 
+                     breaks = c(seq(0, 500, by = 50),
+                                seq(500, 1000, by = 100),
+                                seq(1000, 20000, by = 1000))) + 
+  labs(title = 'SV Length of SVs Overlapping full genes') +
+  scale_fill_carto_d(palette = "Safe")
+
+grid.arrange(ImpactAllPlot, table, ncol = 2, widths = c(1, 1))
+
+ggplot(allSVs_paragraph %>% filter(overlapsExon), aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous('SV Length', limits = c(0, 2000), 
+                     breaks = c(seq(0, 500, by = 50),
+                                seq(500, 1000, by = 100),
+                                seq(1000, 2000, by = 500))) +
+  labs(title = 'SV Length of SVs Overlapping Exons') +
+  scale_fill_carto_d(palette = "Safe")
+
+
+
+
+
+ggplot(allSVs_paragraph, aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous('SV Length', limits = c(0, 2000), 
+                     breaks = c(seq(0, 500, by = 50),
+                                seq(500, 1000, by = 100),
+                                seq(1000, 2000, by = 500))) +
+  labs(title = 'SV Length of All SVs ') +
+  scale_fill_carto_d(palette = "Safe") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Overlapping full genes
+dot plot of how many per chrom
+violin of AF by SVLEN for overlaps full Gene vs not
+GEASEA for subsets/ All SVs???
+```{r}
+
+ggplot(allSVs_paragraph %>% filter(overlapsFullGene), aes(x = SVLEN, fill = SVTYPE)) +
+  geom_violin(alpha = 0.5) +
+  labs(title = 'SV Length of SVs Overlapping full genes') +
+  scale_fill_carto_d(palette = "Safe")
+
+```
+
+make a summary table for human data, for those that overlap hg19 or not
+```{r}
+
+
+
+```
+As a reminder these were loaded above
+cvOverlap_paragraph <- merge(cvOverlap, allSVs_paragraph[c('ID', 'REF', 'ALT', 'SVTYPE', 'SVLEN', 'LiftedToHuman')], by = 'ID', all.x = TRUE)
+cvOverlap
+
+
+gnomadOverlaps_paragraph <- merge(gnomadOverlaps, allSVs_paragraph[c('ID', 'REF', 'ALT', 'SVTYPE', 'SVLEN', 'LiftedToHuman')], by = 'ID', all.x = TRUE)
+Summerize the human data
+```{r}
+
+#Summerize the human data
+
+summary_table_paragraph <- function(data, overlaps, dataset_name) {
+  data %>%
+    left_join(overlaps, by = c("ID")) %>%
+    mutate(LiftedToHuman = if_else(!is.na(LiftedToHuman), TRUE, FALSE)) %>%
+    group_by(LiftedToHuman, Dataset = dataset_name) %>%
+    summarise(count = n(), .groups = 'drop')
+}
+
+
+# Create summary tables for gnomad and clinvar overlaps
+gnomad_summary_paragraph <- summary_table(allSVs_paragraph, gnomadOverlaps, "Gnomad")
+cv_summary_paragraph <- summary_table(allSVs_paragraph, cvOverlap, "ClinVar Pathogenic")
+dbvar_summary_paragraph <- summary_table(allSVs_paragraph, DBVAR_Overlap, "DBVAR")
+
+# Create summary table for all SVs (without filtering by overlaps)
+all_summary_paragraph <- allSVs_paragraph %>%
+  mutate(LiftedToHuman = "ALL SVs") %>%
+  group_by(LiftedToHuman, Dataset = "All SVs") %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Combine all summary tables
+combined_summary_paragraph <- bind_rows(gnomad_summary, cv_summary, all_summary) %>%
+  arrange(LiftedToHuman, Dataset)
+
+# Display the formatted summary table
+combined_summary
+
+```
+
+How to the input data differ from the overlap data for clinVar and gnomad?
+```{r}
+library(tidyverse)
+gnomadOverlaps_all_paragraph <- merge(gnomadOverlaps, gnomadAll[c('ID', 'SVTYPE')], by.x = 'GnomadID', by.y = 'ID', all.x = TRUE)
+names(gnomadOverlaps_all)[names(gnomadOverlaps_all) == 'SVTYPE']_paragraph <- 'Gnomad.SVTYPE'
+
+# Count occurrences of each SVTYPE in gnomadAll
+gnomadAll_counts_paragraph <- as.data.frame(table(gnomadAll$SVTYPE))
+names(gnomadAll_counts)_paragraph <- c('SVTYPE', 'Count_All')
+
+# Count occurrences of each SVTYPE in overlaps
+gnomadOverlaps_counts_paragraph <- as.data.frame(table(gnomadOverlaps_all$Gnomad.SVTYPE))
+names(gnomadOverlaps_counts)_paragraph <- c('SVTYPE', 'Count_Overlaps')
+
+# Merge counts for comparison
+gnomadAllsummary_paragraph <- merge(gnomadAll_counts, gnomadOverlaps_counts, by = 'SVTYPE', all = TRUE)
+gnomadAllsummary[is.na(gnomadAllsummary)]_paragraph <- 0
+
+# Calculate the count of non-overlapping SVs
+gnomadAllsummary$Count_NonOverlaps_paragraph <- gnomadAllsummary$Count_All - gnomadAllsummary$Count_Overlaps
+
+# Convert to long format for plotting
+gnomadAllsummary_long_paragraph <- pivot_longer(gnomadAllsummary, cols = c('Count_Overlaps', 'Count_NonOverlaps'), 
+                                      names_to = 'Type', values_to = 'Count')
+
+
+ggplot(gnomadAllsummary_long, aes(x = SVTYPE, y = Count, fill = Type)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = colorblind, labels = c("Common", "Non-Common")) +
+  theme_minimal() +
+  labs(title = 'Comparison of gnomadAll and gnomadOverlaps by SVTYPE',
+       x = 'SVTYPE',
+       y = 'Count',
+       fill = 'Type')
+
+ggplot(gnomadAllsummary_long, aes(x = SVTYPE, y = Count, fill = Type)) +
+  geom_bar(stat = 'identity') +
+  scale_y_log10() +
+  scale_fill_manual(values = colorblind, labels = c("Overlapping with SVs", "Not Overlapping")) +
+  theme_minimal() +
+  labs(title = 'Comparison of gnomadAll and gnomadOverlaps by SVTYPE',
+       x = 'SVTYPE',
+       y = 'Count (log scale)',
+       fill = 'Type')
+
+```
+
+
+DBVAR_75_Overlaps
+DBVAR
+```{r}
+
+DBVAROverlaps_all_paragraph <- merge(DBVAR_75_Overlaps, DBVARAll[c('ID', 'SVTYPE')], by.x = 'DBVARID', by.y = 'ID', all.x = TRUE)
+names(DBVAROverlaps_all)[names(DBVAROverlaps_all) == 'SVTYPE']_paragraph <- 'DBVAR.SVTYPE'
+
+
+# Count occurrences of each SVTYPE in DBVARAll
+DBVARAll_counts_paragraph <- as.data.frame(table(DBVARAll$SVTYPE))
+names(DBVARAll_counts)_paragraph <- c('SVTYPE', 'Count_All')
+
+# Count occurrences of each SVTYPE in overlaps
+DBVAROverlaps_counts_paragraph <- as.data.frame(table(DBVAROverlaps_all$DBVAR.SVTYPE))
+names(DBVAROverlaps_counts)_paragraph <- c('SVTYPE', 'Count_Overlaps')
+
+# Merge counts for comparison
+DBVARAllsummary_paragraph <- merge(DBVARAll_counts, DBVAROverlaps_counts, by = 'SVTYPE', all = TRUE)
+DBVARAllsummary[is.na(DBVARAllsummary)]_paragraph <- 0
+
+# Calculate the count of non-overlapping SVs
+DBVARAllsummary$Count_NonOverlaps_paragraph <- DBVARAllsummary$Count_All - DBVARAllsummary$Count_Overlaps
+
+# Convert to long format for plotting
+DBVARAllsummary_long_paragraph <- pivot_longer(DBVARAllsummary, cols = c('Count_Overlaps', 'Count_NonOverlaps'), 
+                                      names_to = 'Type', values_to = 'Count')
+
+
+ggplot(DBVARAllsummary_long, aes(x = SVTYPE, y = Count, fill = Type)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = colorblind, labels = c("Common", "Non-Common")) +
+  theme_minimal() +
+  labs(title = 'Comparison of DBVARAll and DBVAROverlaps by SVTYPE',
+       x = 'SVTYPE',
+       y = 'Count',
+       fill = 'Type')
+
+ggplot(DBVARAllsummary_long, aes(x = SVTYPE, y = Count, fill = Type)) +
+  geom_bar(stat = 'identity') +
+  scale_y_log10() +
+  scale_fill_manual(values = colorblind, labels = c("Common", "Non-Common")) +
+  theme_minimal() +
+  labs(title = 'Comparison of DBVARAll and DBVAROverlaps by SVTYPE',
+       x = 'SVTYPE',
+       y = 'Count (log scale)',
+       fill = 'Type')
+
+```
+
+```{r}
+ggplot(allSVs_paragraph, aes(x = SVTYPE)) +
+  geom_bar(fill = colorblind[1]) +
+  theme_minimal() +
+  labs(title = "Distribution of SV Types", x = "SV Type", y = "Count")
+ggplot(allSVs_paragraph, aes(x = SVLEN)) +
+  geom_histogram(binwidth = 1, fill = colorblind[2]) +
+  theme_minimal() +
+  labs(title = "SV Length Distribution", x = "SV Length", y = "Count")
+  
+```
+
+```{r}
+
+# Define the subsets
+subsets_paragraph <- list(
+  "High-Impact (Rare)" = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF < 0.15),
+  "High-Impact (Not Rare)" = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF >= 0.15),
+  "Overlaps Full Gene" = allSVs_paragraph %>% filter(overlapsFullGene),
+  "SVLEN >10K (Exonic)" = allSVs_paragraph %>% filter(SVLEN > 10000 & overlapsExon),
+  "AF >0.98" = allSVs_paragraph %>% filter(AF > 0.98),
+  "ClinVar (Identical)" = allSVs_paragraph %>% filter(!is.na(ClinVarId)),
+  "ClinVar (Same Gene, Exonic)" = allSVs_paragraph %>% filter(!is.na(ClinVarByGene)) %>% filter(abs(SVLEN) < 5000 & overlapsExon)
+)
+
+#excluding is complex region
+subsets_paragraph <- list(
+  "High-Impact (Rare)" = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF < 0.15 & !IsComplexRegion),
+  "High-Impact (Not Rare)" = allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF >= 0.15 & !IsComplexRegion),
+  "Overlaps Full Gene" = allSVs_paragraph %>% filter(overlapsFullGene & !IsComplexRegion),
+  "SVLEN >10K (Exonic)" = allSVs_paragraph %>% filter(SVLEN > 10000 & overlapsExon & !IsComplexRegion),
+  "AF >0.98" = allSVs_paragraph %>% filter(AF > 0.98 & !IsComplexRegion),
+  "ClinVar (Identical)" = allSVs_paragraph %>% filter(!is.na(ClinVarId) & !IsComplexRegion),
+  "ClinVar (Same Gene, Exonic)" = allSVs_paragraph %>% filter(!is.na(ClinVarByGene) & abs(SVLEN) < 5000 & overlapsExon & !IsComplexRegion)
+)
+
+summary_of_subsets_paragraph <- data.frame(
+  Subset = character(),
+  Total_Rows = integer(),
+  Overlaps_Exon = integer(),
+  Overlaps_Full_Gene = integer(),
+  SVLEN_gt_10000 = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Function to get counts for each subset and add to summary dataframe
+get_subset_counts_paragraph <- function(df, subset_name) {
+  total_rows_paragraph <- nrow(df)
+  overlapsExon_count_paragraph <- sum(df$overlapsExon, na.rm = TRUE)
+  overlapsFullGene_count_paragraph <- sum(df$overlapsFullGene, na.rm = TRUE)
+  SVLEN_gt_10000_count_paragraph <- sum(df$SVLEN > 10000, na.rm = TRUE)
+  
+  summary_of_subsets <<- rbind(summary_of_subsets, data.frame(
+    Subset = subset_name,
+    Total_Rows = total_rows,
+    Overlaps_Exon = overlapsExon_count,
+    Overlaps_Full_Gene = overlapsFullGene_count,
+    SVLEN_gt_10000 = SVLEN_gt_10000_count,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Loop through each subset
+for (subset_name in names(subsets)) {
+  df_paragraph <- subsets[[subset_name]]
+  get_subset_counts(df, subset_name)
+}
+
+library(writexl)
+# Print the summary table
+print(summary_of_subsets)
+write_xlsx(summary_of_subsets, "summary_of_subsets.xlsx")
+
+ggplot(summary_of_subsets, aes(x = Subset, y = Total_Rows, fill = Subset)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Total Rows per Subset", x = "Subset", y = "Total Rows") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+ggplot(summary_of_subsets, aes(x = Subset, y = Overlaps_Exon, fill = Subset)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Overlaps Exon per Subset", x = "Subset", y = "Overlaps Exon") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+ggplot(summary_of_subsets, aes(x = Subset, y = Overlaps_Full_Gene, fill = Subset)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Overlaps Full Gene per Subset", x = "Subset", y = "Overlaps Full Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+ggplot(summary_of_subsets, aes(x = Subset, y = SVLEN_gt_10000, fill = Subset)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "SVLEN > 10,000 per Subset", x = "Subset", y = "SVLEN > 10,000") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+
+```
+
+```{r}
+# Count entries by SVTYPE for Gnomad_50_Overlaps and gnomadOverlaps
+counts_gnomad_paragraph <- as.data.frame(table(Gnomad_50_Overlaps$Gnomad.SVTYPE))
+counts_gnomad$Dataset_paragraph <- "Gnomad_50_Overlaps"
+
+counts_gnomad_overlaps_paragraph <- as.data.frame(table(gnomadOverlaps$Gnomad.SVTYPE))
+counts_gnomad_overlaps$Dataset_paragraph <- "gnomadOverlaps"
+
+# Combine counts into one dataframe
+counts_gnomad_combined_paragraph <- rbind(counts_gnomad, counts_gnomad_overlaps)
+
+# Similarly, count entries for DBVAR_50_Overlaps and DBVAR_75_Overlaps
+counts_dbvar50_paragraph <- as.data.frame(table(DBVAR_50_Overlaps$DBVAR.SVTYPE))
+counts_dbvar50$Dataset_paragraph <- "DBVAR_50_Overlaps"
+
+counts_dbvar75_paragraph <- as.data.frame(table(DBVAR_75_Overlaps$DBVAR.SVTYPE))
+counts_dbvar75$Dataset_paragraph <- "DBVAR_75_Overlaps"
+
+# Combine counts into one dataframe
+counts_dbvar_combined_paragraph <- rbind(counts_dbvar50, counts_dbvar75)
+
+# Combine all datasets for plotting
+all_counts_paragraph <- rbind(counts_gnomad_combined, counts_dbvar_combined)
+
+# Convert SVTYPE to factor to ensure correct plotting order
+all_counts$Var1_paragraph <- factor(all_counts$Var1, levels = unique(all_counts$Var1))
+
+ggplot(all_counts, aes(x = Var1, y = Freq, fill = Dataset)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Comparison of SVTYPE Counts for Overlaps with Human data',
+       x = 'SVTYPE',
+       y = 'Count') +
+  scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+counts_DBVARAll_paragraph <- table(DBVARAll$SVTYPE)
+counts_cvDataAll_paragraph <- table(cvDataAll$SVTYPE)
+counts_gnomadAll_paragraph <- table(gnomadAll$SVTYPE)
+counts_liftedData_paragraph <- table(liftedData$SVTYPE)
+
+# Combine counts into a single data frame
+counts_of_human_input_paragraph <- rbind(
+  data.frame(Dataset = "DBVARAll", SVTYPE = names(counts_DBVARAll), Count = as.numeric(counts_DBVARAll)),
+  data.frame(Dataset = "cvDataAll", SVTYPE = names(counts_cvDataAll), Count = as.numeric(counts_cvDataAll)),
+  data.frame(Dataset = "gnomadAll", SVTYPE = names(counts_gnomadAll), Count = as.numeric(counts_gnomadAll)),
+  data.frame(Dataset = "liftedData", SVTYPE = names(counts_liftedData), Count = as.numeric(counts_liftedData))
+)
+
+
+ggplot(counts_of_human_input, aes(x = SVTYPE, y = Count, fill = Dataset)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Comparison of SVTYPE Counts for Inputs',
+       x = 'SVTYPE',
+       y = 'Count') +
+  scale_fill_manual(values = colorblind) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(counts_of_human_input, aes(x = Dataset, y = Count, fill = Dataset)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Counts of Input data',
+       x = 'Dataset',
+       y = 'Count') +
+    scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(all_counts, aes(x = Dataset, y = Freq, fill = Dataset)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Counts of Overlap data',
+       x = 'Dataset',
+       y = 'Count') +
+    scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+try to summarize by OG
+```{r}
+WholeGenesum_paragraph <- allSVs_paragraph %>%
+  filter(overlapsFullGene) %>%
+  group_by(OG) %>%
+  summarize(Count = n())
+
+
+ggplot(WholeGenesum, aes(x = OG, y = Count, fill = OG)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Summary of SVs Overlapping Full Gene by OG",
+       x = "OG", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ OG, scales = "free")
+
+WG_SVs_paragraph <- allSVs_paragraph %>%
+  filter(overlapsFullGene)
+#additional filtering steps to redo once 
+#REGION name
+#WG_SVs_paragraph <- allSVs_paragraph %>%
+#  filter(is.na(RegionName) & overlapsFullGene)
+
+#WG_SVs_paragraph <- allSVs_paragraph %>%
+#  filter(!IsComplexRegion & overlapsFullGene)
+
+#WG_SVs_paragraph <- WG_SVs %>%
+#  mutate(Group = paste0(CHROM, "_", cut(POS, breaks = seq(min(POS), max(END), by = 1000000))))
+
+
+
+chrom_sum_paragraph <- WG_SVs %>%
+  group_by(CHROM) %>%
+  summarize(Count = n())
+
+ggplot(chrom_sum, aes(x = CHROM, y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Summary of SVs Overlapping Full Gene by Chromosome",
+       x = "Chromosome", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_gradient(low = "blue", high = "red")
+
+```
+
+
+
+```{r}
+#15 64078429 #15 6410000
+
+```
+Loading and examing the slop overlap files
+```{r}
+library(data.table)
+#get the slop overlap  files for dbvar and gnomad
+slop_files_paragraph <- list(
+  "dbvarCommonOverlap_slop50.overlap.75.txt.gz",
+  "dbvarCommonOverlap_slop10.overlap.75.fixed.txt.gz",
+  "gnomadCommonOverlap_slop10.overlap.5.txt.gz",
+  "dbvarCommonOverlap_slop50.overlap.5.fixed.txt.gz",
+  "gnomadCommonOverlap_slop50.overlap.75.txt.gz",
+  "dbvarCommonOverlap_slop10.overlap.5.fixed.txt.gz",
+  "gnomadCommonOverlap_slop10.overlap.75.txt.gz",
+  "gnomadCommonOverlap_slop50.overlap.5.txt.gz"
+)
+
+process_slop_file_paragraph <- function(file) {
+  data_paragraph <- fread(file, header = FALSE, sep = "\t", quote = "")
+  data_paragraph <- data[, list(V1, V2, V3, V4, V5, V8, V10, V14)]
+  colnames(data)_paragraph <- c('CHROM', 'POS', 'END', 'ID', 'SVTYPE', 'DBVARID', 'DBVAR.SVTYPE', 'IntersectLength')
+  # Extract the dataset name with overlap percentage
+  data$Dataset_paragraph <- sub(".txt.gz", "", basename(file))
+  return(data)
+}
+
+# Process all files and store in a list
+processed_slop_files_paragraph <- lapply(slop_files, process_slop_file)
+
+# Combine processed data into a single data frame
+combined_slop_data_paragraph <- rbindlist(processed_slop_files)
+
+unique_datasets_paragraph <- unique(combined_slop_data$Dataset)
+print("Datasets present in the combined data:")
+print(unique_datasets)
+
+# Count entries by SVTYPE for each dataset
+slop_counts_list_paragraph <- lapply(seq_along(processed_slop_files), function(i) {
+  df_paragraph <- processed_slop_files[[i]]
+  counts_paragraph <- as.data.frame(table(df$DBVAR.SVTYPE))
+  # Retain overlap percentage in dataset name
+  counts$Dataset_paragraph <- sub(".txt.gz", "", basename(slop_files[[i]]))
+  return(counts)
+})
+
+# Combine counts into one dataframe
+slop_counts_paragraph <- do.call(rbind, slop_counts_list)
+
+# Convert SVTYPE to factor to ensure correct plotting order
+slop_counts$Var1_paragraph <- factor(slop_counts$Var1, levels = unique(slop_counts$Var1))
+
+
+ggplot(slop_counts, aes(x = Var1, y = Freq, fill = Dataset)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Comparison of SVTYPE(from human source) Counts for sloppy Overlaps with Human data',
+       x = 'SVTYPE',
+       y = 'Count') +
+  scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(slop_counts, aes(x = Var1, y = Freq, fill = Dataset)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Comparison of SVTYPE(from SVs) Counts for sloppy Overlaps with Human data',
+       x = 'SVTYPE',
+       y = 'Count') +
+  scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(all_counts, aes(x = Dataset, y = Freq, fill = Var1)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Overall Comparison of SVTYPE Counts for Overlaps with Human data',
+       x = 'Dataset',
+       y = 'Count') +
+  scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(slop_counts, aes(x = Dataset, y = Freq, fill = Dataset)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Counts of Sloppy overlaps',
+       x = 'Dataset',
+       y = 'Count') +
+    scale_fill_manual(values = colorblind) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+```
+
+```{r}
+#add meta data for plotting
+combined_slop_data_paragraph <- merge(combined_slop_data, allSVs_paragraph, by = "ID", all.x = TRUE)
+
+
+
+ggplot(combined_slop_data, aes(x = SVLEN, y = AF, color = DBVAR.SVTYPE)) +
+  geom_point(alpha = 0.6) +  
+  theme_minimal() +
+  labs(title = "Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")
+
+ggplot(combined_slop_data, aes(x = AF, color = Dataset)) +
+  geom_density() +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  labs(title = "Density Plot of Allele Frequency by Group",
+       x = "Allele Frequency",
+       y = "Density") +
+  theme_minimal()
+```
+
+
+
+```{r}
+ggplot(slop_counts, aes(x = ABS_SVLEN, y = AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "SV Length vs Allele Frequency",
+       x = "ABS SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")
+```
+
+Another way to look at overlaps between Data sets
+lifted data and gnomad data chord diagram:
+liftedData_paragraph <- unique(read.table('PBSV_CCS_CLR_merge.snpEff.ft.annotated.filtered.selectVariants.snpEff.annotated.noAnnotations.snpEff.annotated.lifted-99.table.txt.gz', header = T, sep = '\t', quote = ''))
+#has CHROM POS END ID
+
+gnomadAll_paragraph <- unique(read.table('gnomad.table.txt.gz', header = T, sep = '\t', quote = ''))
+#has CHROM, POS, END, ID
+
+```{r}
+library(circlize)
+
+# Get unique chromosomes from both datasets
+chromosomes_lifted_paragraph <- unique(liftedData$CHROM)
+chromosomes_gnomad_paragraph <- unique(gnomadAll$CHROM)
+
+# Find common chromosomes
+common_chromosomes_paragraph <- intersect(chromosomes_lifted, chromosomes_gnomad)
+
+# Filter datasets to keep only common chromosomes and remove rows with NAs in POS or END columns
+liftedData_filtered_paragraph <- liftedData[liftedData$CHROM %in% common_chromosomes & !is.na(liftedData$POS) & !is.na(liftedData$END), ]
+gnomadAll_filtered_paragraph <- gnomadAll[gnomadAll$CHROM %in% common_chromosomes & !is.na(gnomadAll$POS) & !is.na(gnomadAll$END), ]
+
+# Combine filtered data from both sources for plotting
+combinedData_filtered_paragraph <- rbind(liftedData_filtered, gnomadAll_filtered)
+
+# Check if there are valid data points for plotting
+if (nrow(combinedData_filtered) > 0) {
+  # Set circos parameters for better visualization
+  circos.par(cell.padding = c(0, 0, 0, 0))  # Adjust as per your visualization needs
+  
+  # Initialize the circular plot
+  circos.initialize(factors = chromosomes_lifted, xlim = c(0, max(liftedData_filtered$POS)))
+  
+  # Define a function to plot genomic points
+  plotGenomicPoints_paragraph <- function(region, value, ...) {
+    circos.genomicPoints(region, value, col = "blue", pch = 16, ...)
+  }
+  
+  # Loop through each chromosome and add genomic points
+  for (chrom in chromosomes_lifted) {
+    sub_data_paragraph <- combinedData_filtered[combinedData_filtered$CHROM == chrom, ]
+    circos.genomicPoints(chrom, sub_data$POS, sub_data$END, col = "blue", pch = 16, track.index = 1)
+  }
+  
+} else {
+  cat("No valid data points found for plotting.\n")
+}
+
+
+
+
+
+```
+```{r}
+```
+
+Translate Variant Effects:
+```{r}
+
+
+doVETranslation_paragraph <- function(effects) {
+  effects$Translation_paragraph <- NA
+  
+
+  effects$Translation[grepl(effects$VE, pattern = 'UTR', ignore.case = TRUE)]_paragraph <- 'Non-coding'
+  effects$Translation[grepl(effects$VE, pattern = 'non_coding', ignore.case = TRUE)]_paragraph <- 'Non-coding'
+
+
+  effects$Translation[grepl(effects$VE, pattern = 'exon', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'frameshift', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'gain', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  
+  effects$Translation[grepl(effects$VE, pattern = 'intron', ignore.case = TRUE)]_paragraph <- 'Intronic'
+  effects$Translation[grepl(effects$VE, pattern = 'splice', ignore.case = TRUE)]_paragraph <- 'Intronic'
+  effects$Translation[grepl(effects$VE, pattern = 'intragenic', ignore.case = TRUE)]_paragraph <- 'Intronic'
+  
+  effects$Translation[grepl(effects$VE, pattern = 'ablation', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'duplication', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'stop', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'fusion', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'deletion', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'start_retained', ignore.case = TRUE)]_paragraph <- 'Exonic'
+  effects$Translation[grepl(effects$VE, pattern = 'inframe', ignore.case = TRUE)]_paragraph <- 'Exonic'
+
+    effects$Translation[grepl(effects$VE, pattern = 'loss', ignore.case = TRUE)]_paragraph <- 'Knockout'
+  effects$Translation[grepl(effects$VE, pattern = 'lost', ignore.case = TRUE)]_paragraph <- 'Knockout'
+
+  effects$Translation[grepl(effects$VE, pattern = 'none', ignore.case = TRUE)]_paragraph <- 'Intergenic'
+  effects$Translation[grepl(effects$VE, pattern = 'downstream_gene', ignore.case = TRUE)]_paragraph <- 'Downstream Gene'
+  effects$Translation[grepl(effects$VE, pattern = 'upstream_gene', ignore.case = TRUE)]_paragraph <- 'Upstream Gene'
+  effects$Translation[grepl(effects$VE, pattern = 'inter', ignore.case = TRUE)]_paragraph <- 'Intergenic'
+  effects$Translation[grepl(effects$VE, pattern = 'chromosome_number_variation', ignore.case = TRUE)]_paragraph <- 'Intergenic'
+  effects$Translation[grepl(effects$VE, pattern = 'inversion', ignore.case = TRUE)]_paragraph <- 'Intergenic'
+
+  return(effects)
+}
+
+```
+
+
+
+```{r}
+
+effects_paragraph <- data.frame(VE = sort(unique(allSVs_paragraph$VE))) %>% 
+  mutate(VEOrig = VE) %>%
+  tidyr::separate_rows('VE', sep = ', ') %>% 
+  distinct()
+
+effects_paragraph <- doVETranslation(effects)
+
+sum(is.na(effects$Translation))
+sort(table(effects$VE[is.na(effects$Translation)]))
+
+effects_paragraph <- effects %>%
+  group_by(VEOrig) %>%
+  summarise(Effects = paste0(sort(unique(Translation)), collapse = ','))
+
+effects$Effects[grepl(effects$Effects, pattern = 'Downstream') & grepl(effects$Effects, pattern = 'Upstream')]_paragraph <- 'Intergenic'
+effects$Effects[grepl(effects$Effects, pattern = 'Downstream')]_paragraph <- 'Downstream Gene'
+effects$Effects[grepl(effects$Effects, pattern = 'Upstream')]_paragraph <- 'Upstream Gene'
+effects$Effects[grepl(effects$Effects, pattern = 'Non-coding')]_paragraph <- 'Intergenic'
+effects$Effects[grepl(effects$Effects, pattern = 'Intronic')]_paragraph <- 'Intronic'
+effects$Effects[grepl(effects$Effects, pattern = 'Exonic')]_paragraph <- 'Exonic'
+effects$Effects[grepl(effects$Effects, pattern = 'Knockout')]_paragraph <- 'Knockout'
+
+
+table(effects$Effects)
+
+```
+
+```{r}
+
+svEffects_paragraph <- merge(allSVs_paragraph, effects, by.x = 'VE', by.y = 'VEOrig', all.x = TRUE)
+
+if (any(is.na(svEffects$Effects))) {
+  allSVs_paragraph$VE[! allSVs_paragraph$VE %in% effects$VEOrig]
+  stop('NA values!')
+}
+
+svEffects$Effects[is.na(svEffects$Effects)]_paragraph <- 'Intragenic'
+svEffects_paragraph <- svEffects %>%
+  group_by(Effects) %>% 
+  summarise(Total = n())
+
+svEffects$Type_paragraph <- 'SVs\n(PacBio)'
+
+ pie_chart_SVS_paragraph <- ggplot(svEffects, aes(x = "", y = Total, fill = Effects)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y") +
+  facet_grid(. ~ Type) +
+  ggrepel::geom_label_repel(
+    aes(label = paste0(scales::percent(Total / sum(Total)), "\n", Effects)),  
+    size = 4.5, nudge_x = 1, show.legend = FALSE
+  ) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_void()
+
+pie_chart_SVS  
+
+
+
+```
+
+
+```{r}
+#look at the knockouts
+knockout_svEffects_paragraph <- svEffects %>%
+  filter(Effects == "Knockout")
+
+# View the filtered data
+knockout_svEffects
+
+knockout_allSVs_paragraph_paragraph <- allSVs_paragraph %>%
+  filter(grepl("loss", VE, ignore.case = TRUE) | grepl("lost", VE, ignore.case = TRUE)) %>%
+  mutate(Effects = "Knockout")
+
+```
+
+plotting the knockout SVs
+```{r}
+knockout_allSVs_paragraph_paragraph <- allSVs_paragraph %>%
+  filter(grepl("loss", VE, ignore.case = TRUE) | grepl("lost", VE, ignore.case = TRUE)) %>%
+  mutate(Effects = "Knockout")
+
+knockout_allSVs_paragraph_paragraph <- knockout_allSVs_paragraph %>%
+  mutate(ClinVarByGene_Status = ifelse(is.na(ClinVarByGene), "NA", "Not NA"))
+
+ggplot(knockout_allSVs_paragraph, aes(x = ClinVarByGene_Status, y = ABS_SVLEN, fill = ClinVarByGene_Status)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Violin Plot of Knockout SVs", x = "ClinVarByGene Status", y = "ABS_SVLEN") +
+  theme(legend.position = "none")
+
+ggplot(knockout_allSVs_paragraph, aes(x = ClinVarByGene_Status, y = AF, fill = ClinVarByGene_Status)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Violin Plot of Knockout SVs", x = "ClinVarByGene Status", y = "AF") +
+  theme(legend.position = "none")
+
+ggplot(knockout_allSVs_paragraph, aes(x = SVTYPE, y = AF, fill = IMPACT)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Violin Plot of Knockout SVs", x = "Impact", y = "AF") +
+  theme(legend.position = "right")
+
+ggplot(knockout_allSVs_paragraph, aes(x = SVTYPE, y = SVLEN, fill = IMPACT)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Violin Plot of Knockout SVs", x = "Impact", y = "Length") +
+  theme(legend.position = "right")
+
+```
+
+```{r}
+OE_SVs_paragraph <- allSVs_paragraph %>%
+  filter(!is.na(overlappingExon))
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF)) +
+  geom_hex() +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Hexbin Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF)) +
+  geom_density2d() +
+  theme_minimal() +
+  labs(title = "2D Density Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF)) +
+  geom_bin2d() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  labs(title = "Heatmap of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  theme_minimal() +
+  labs(title = "Smooth Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+ggplot(OE_SVs, aes(x = SVLEN, y = AF, color = SVTYPE)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  facet_wrap(~ SVTYPE)
+
+ggplot(df, aes(x = ABS_SVLEN, y = AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "SV Length vs Allele Frequency",
+       x = "ABS SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")
+```
+
+Whole gene overlaps by AF and SVLEN
+```{r}
+
+ggplot(WG_SVs, aes(x = ABS_SVLEN, y = AF)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Whole gene Overlaps- The shortest ones",
+       x = "SV Length( absolute)",
+       y = "Allele Frequency") +
+ scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  scale_x_continuous(limits = c(0, 1000), breaks = seq(0, max(WG_SVs$ABS_SVLEN, na.rm = TRUE), by = 100))
+
+ggplot(WG_SVs, aes(x = ABS_SVLEN, y = AF)) +
+  geom_violin() +
+  theme_minimal() +
+  labs(title = "Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+ scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  xlim(400, NA)
+
+ggplot(WG_SVs, aes(x = SVLEN, y = AF)) +
+  geom_hex() +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Hexbin Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+ggplot(WG_SVs, aes(x = SVLEN, y = AF)) +
+  geom_density2d() +
+  theme_minimal() +
+  labs(title = "2D Density Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+ggplot(WG_SVs, aes(x = SVLEN, y = AF)) +
+  geom_bin2d() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  labs(title = "Heatmap of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency")
+
+
+ggplot(WG_SVs, aes(x = SVLEN, y = AF)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  theme_minimal() +
+  labs(title = "Smooth Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+ggplot(WG_SVs, aes(x = SVLEN, y = AF, color = SVTYPE)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Scatter Plot of SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  facet_wrap(~ SVTYPE)
+
+ggplot(WG_SVs, aes(x = ABS_SVLEN, y = AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "Whole Gene overlaps smaller than 1000",
+       x = "ABS SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")+
+    scale_x_continuous(limits = c(0, 1000), breaks = seq(0, max(WG_SVs$ABS_SVLEN, na.rm = TRUE), by = 100))
+
+ggplot(WG_SVs, aes(x = ABS_SVLEN, y = AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "Whole Gene Overlaps larger than 1000",
+       x = "ABS SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")+
+    scale_x_continuous(limits = c(1000, NA), breaks = seq(0, max(WG_SVs$ABS_SVLEN, na.rm = TRUE), by = 100000))
+
+
+
+```
+```{r}
+library(VennDiagram)
+library(RColorBrewer)
+
+
+#add in filtering of SVTYPE mismatch between DEL nd INS types
+
+DBVAR_75_Overlaps_paragraph <- DBVAR_75_Overlaps %>%
+  filter(!(SVTYPE %in% c('DEL') & SVTYPE %in% gnomadOverlaps$SVTYPE & 'INS' %in% gnomadOverlaps$SVTYPE)) %>%
+  filter(!(SVTYPE %in% c('INS') & SVTYPE %in% gnomadOverlaps$SVTYPE & 'DEL' %in% gnomadOverlaps$SVTYPE))
+
+gnomadOverlaps_paragraph <- gnomadOverlaps %>%
+  filter(!(SVTYPE %in% c('DEL') & SVTYPE %in% DBVAR_75_Overlaps$SVTYPE & 'INS' %in% DBVAR_75_Overlaps$SVTYPE)) %>%
+  filter(!(SVTYPE %in% c('INS') & SVTYPE %in% DBVAR_75_Overlaps$SVTYPE & 'DEL' %in% DBVAR_75_Overlaps$SVTYPE))
+
+cvOverlap_paragraph <- cvOverlap %>%
+  filter(!(SVTYPE %in% c('DEL') & SVTYPE %in% DBVAR_75_Overlaps$SVTYPE & 'INS' %in% DBVAR_75_Overlaps$SVTYPE)) %>%
+  filter(!(SVTYPE %in% c('INS') & SVTYPE %in% DBVAR_75_Overlaps$SVTYPE & 'DEL' %in% DBVAR_75_Overlaps$SVTYPE))
+
+```
+
+
+```{r}
+
+HumanOverlapData_paragraph <- merge(DBVAR_75_Overlaps, gnomadOverlaps, by = 'ID', all = TRUE)
+HumanOverlapData_paragraph <- merge(HumanOverlapData, cvOverlap, by = 'ID', all = TRUE)
+
+
+unique_dbvar_ids_paragraph <- setdiff(DBVAR_75_Overlaps$ID, union(gnomadOverlaps$ID, cvOverlap$ID))
+unique_gnomad_ids_paragraph <- setdiff(gnomadOverlaps$ID, union(DBVAR_75_Overlaps$ID, cvOverlap$ID))
+unique_cv_ids_paragraph <- setdiff(cvOverlap$ID, union(DBVAR_75_Overlaps$ID, gnomadOverlaps$ID))
+
+common_ids_paragraph <- intersect(intersect(DBVAR_75_Overlaps$ID, gnomadOverlaps$ID), cvOverlap$ID)
+
+summary_of_overlap_overlaps_paragraph <- data.frame(
+  Dataset = c('DBVAR overlaps with SVs Unique', 'GnomAD overlaps with SVs Unique', 'ClinVar overlaps with SVs Unique', 'IDs that Overlap with SVs from several human datasets'),
+  Count = c(length(unique_dbvar_ids), length(unique_gnomad_ids), length(unique_cv_ids), length(common_ids))
+)
+
+countshumanOVplot_paragraph <- ggplot(summary_of_overlap_overlaps, aes(x = Dataset, y = Count, fill = Dataset)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = colorblind) +
+  theme_minimal() +
+  labs(title = 'Ids in Common between Human and Macaque SV data', x = 'Overlap dataset', y = 'Count') +
+  theme(legend.position = "none",
+   axis.text.x = element_text(angle = 45, hjust = 1))
+
+countshumanOVplot
+#  IDs for Venn diagram
+dbvar_ids_paragraph <- DBVAR_75_Overlaps$ID
+gnomad_ids_paragraph <- gnomadOverlaps$ID
+cv_ids_paragraph <- cvOverlap$ID
+
+colorblind_palette_paragraph <- brewer.pal(n = 3, name = "Dark2")
+
+venn.plot_paragraph <- venn.diagram(
+  x = list(
+    DBVAR = dbvar_ids,
+    GnomAD = gnomad_ids,
+    ClinVar = cv_ids
+  ),
+  filename = NULL,
+  fill = colorblind_palette,
+  alpha = 0.5,
+  cex = 1.5,
+  cat.cex = 1.5,
+  cat.pos = 0,
+  cat.dist = 0.05,
+  main = "Venn of .75 Overlapping Human and Macaque SV data  by ID"
+)
+
+
+grid.newpage()
+grid.draw(venn.plot)
+#take the 29 overlapping and look at a pie of the VE 
+
+common_dbvar_gnomad_paragraph <- intersect(DBVAR_75_Overlaps$ID, gnomadOverlaps$ID)
+common_dbvar_gnomad_df_paragraph <- allSVs_paragraph[allSVs_paragraph$ID %in% common_dbvar_gnomad, c("ID", "VE")]
+common_dbvar_gnomad_df_paragraph <- common_dbvar_gnomad_df[, c("ID", "VE")]
+
+common_dbvar_gnomad_df$Type_paragraph <- 'DBVAR-GnomAD Overlap'
+
+common_dbvar_gnomad_df$Total_paragraph <- length(common_dbvar_gnomad_df$ID)
+
+commondf_paragraph <- as.data.frame(table(common_dbvar_gnomad_df$VE))
+names(commondf)_paragraph <- c("VE", "Count")
+
+ggplot(commondf, aes(x = VE, y = Count, fill = VE)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Count of VE Values for Common IDs between DBVAR and GnomAD",
+       x = "VE Value",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(head(common_dbvar_gnomad_df))
+ggplot(common_dbvar_gnomad_df, aes(x = "", y = Total, fill = VE)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y") +
+  facet_grid(. ~ Type) +
+  ggrepel::geom_label_repel(
+    aes(label = paste0(scales::percent(Total / sum(Total)), "\n", VE)),  
+    size = 4.5, nudge_x = 1, show.legend = FALSE
+  ) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_void() +
+  labs(title = "Common IDs between DBVAR and GnomAD")
+
+
+
+ 
+```
+
+```{r}
+#also consider  the count of ClinVarByGene
+# Filter for ClinVarByGene
+clinvar_by_gene_summary_paragraph <- allSVs_paragraph %>%
+  filter(!is.na(ClinVarByGene)) %>%
+  group_by(ClinVarByGene) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+# Create summary including ClinVarByGene
+summary_of_overlap_overlaps_paragraph <- data.frame(
+  Dataset = c('DBVAR overlaps with SVs Unique', 'GnomAD overlaps with SVs Unique', 'ClinVar overlaps with SVs Unique', 'IDs that Overlap with SVs from several human datasets', 'Unique ClinVarByGene IDs'),
+  Count = c(length(unique_dbvar_ids), length(unique_gnomad_ids), length(unique_cv_ids), length(common_ids), nrow(clinvar_by_gene_summary))
+)
+
+# Plotting
+countshumanOVplot_paragraph <- ggplot(summary_of_overlap_overlaps, aes(x = Dataset, y = Count, fill = Dataset)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_manual(values = colorblind) +
+  theme_minimal() +
+  labs(title = 'Ids in Common between Human and Macaque SV data', x = 'Overlap dataset', y = 'Count') +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+countshumanOVplot
+
+
+clinvar_by_gene_ids_paragraph <- allSVs_paragraph %>%
+  filter(!is.na(ClinVarByGene)) %>%
+  pull(ID)
+
+# Update Venn
+venn.plot.plusCVgene_paragraph <- venn.diagram(
+  x = list(
+    DBVAR = dbvar_ids,
+    GnomAD = gnomad_ids,
+    ClinVar = cv_ids,
+    ClinVarByGene = clinvar_by_gene_ids
+  ),
+  filename = NULL,
+  fill = brewer.pal(n = 4, name = "Dark2"), 
+  alpha = 0.5,
+  cex = 1.5,
+  cat.cex = 1.5,
+  cat.pos = 0,
+  cat.dist = 0.05,
+  main = "Venn of .75 Overlapping Human and Macaque SV Data by ID"
+)
+
+
+grid.newpage()
+grid.draw(venn.plot.plusCVgene)
+
+
+```
+common_dbvar_gnomad_paragraph <- intersect(DBVAR_75_Overlaps$ID, gnomadOverlaps$ID)
+common_dbvar_gnomad_df_paragraph <- allSVs_paragraph[allSVs_paragraph$ID %in% common_dbvar_gnomad, c("ID", "VE")]
+common_dbvar_gnomad_df_paragraph <- common_dbvar_gnomad_df[, c("ID", "VE")]
+TABLE
+```{r}
+common_dbvar_ClinvarbyGene_paragraph <- intersect(DBVAR_75_Overlaps$ID, clinvar_by_gene_ids)
+common_dbvar_ClinvarbyGene_df_paragraph <- allSVs_paragraph %>% filter(ID %in% common_dbvar_ClinvarbyGene)
+
+# Overlap between GnomAD and ClinVarByGene
+common_gnomad_ClinvarbyGene_paragraph <- intersect(gnomad_ids, clinvar_by_gene_ids)
+common_gnomad_ClinvarbyGene_df_paragraph <- allSVs_paragraph %>% filter(ID %in% common_gnomad_ClinvarbyGene)
+
+common_dbvar_ClinvarbyGene_summary_paragraph <- common_dbvar_ClinvarbyGene_df %>%
+  group_by(VE) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+common_gnomad_ClinvarbyGene_summary_paragraph <- common_gnomad_ClinvarbyGene_df %>%
+  group_by(VE) %>%
+  summarize(Count = n(), .groups = 'drop')
+common_dbvar_ClinvarbyGene_summary
+common_gnomad_ClinvarbyGene_summary
+```
+
+
+```{r}
+#take the 29 overlapping and look at a pie of the VE 
+
+common_dbvar_ClinvarbyGene_paragraph <- intersect(DBVAR_75_Overlaps$ID, clinvar_by_gene_ids)
+common_dbvar_ClinvarbyGene_df_paragraph <- allSVs_paragraph[allSVs_paragraph$ID %in% common_dbvar_ClinvarbyGene, c("ID", "VE")]
+common_dbvar_ClinvarByGene_df_paragraph <- common_dbvar_ClinvarbyGene_df[, c("ID", "VE")]
+
+common_dbvar_gnomad_df$Type_paragraph <- 'DBVAR-GnomAD Overlap'
+
+common_dbvar_gnomad_df$Total_paragraph <- length(common_dbvar_gnomad_df$ID)
+
+commondf_paragraph <- as.data.frame(table(common_dbvar_gnomad_df$VE))
+names(commondf)_paragraph <- c("VE", "Count")
+
+ggplot(commondf, aes(x = VE, y = Count, fill = VE)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_minimal() +
+  labs(title = "Count of VE Values for Common IDs between DBVAR and GnomAD",
+       x = "VE Value",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(head(common_dbvar_gnomad_df))
+ggplot(common_dbvar_gnomad_df, aes(x = "", y = Total, fill = VE)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y") +
+  facet_grid(. ~ Type) +
+  ggrepel::geom_label_repel(
+    aes(label = paste0(scales::percent(Total / sum(Total)), "\n", VE)),  
+    size = 4.5, nudge_x = 1, show.legend = FALSE
+  ) +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme_void() +
+  labs(title = "Common IDs between DBVAR and GnomAD")
+
+```
+Lets take a closer look at high impact subsets an those with homozygous alleles
+
+```{r}
+High_Impact_rare_paragraph <- allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF < 0.15)
+High_Impact_notRare_paragraph <- allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF >= 0.15)
+High_Impact_notRare_HOMVAR_paragraph <- allSVs_paragraph %>% filter(IMPACT == 'HIGH' & AF >= 0.15 & HOM.VAR >= 2)
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(rcartocolor)
+High_Impact_paragraph <- allSVs_paragraph %>% filter(IMPACT == 'HIGH' )
+
+
+
+Not_High_Impact_paragraph <- allSVs_paragraph %>%
+  filter(!(IMPACT == 'HIGH') | is.na(IMPACT) | IMPACT == '') %>%
+  mutate(Group = 'Not High Impact')
+
+High_Impact_paragraph <- High_Impact %>% mutate(Group = 'High Impact')
+
+
+combined_Impact_paragraph <- bind_rows(High_Impact, Not_High_Impact)
+
+
+ggplot(combined_Impact, aes(x = ABS_SVLEN, y = AF, color = SVTYPE)) +
+  geom_point(alpha = 0.6) + 
+  facet_wrap(~ Group) +
+  theme_minimal() +
+  labs(title = "SV Length vs Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  theme(legend.position = "bottom")
+
+
+countsBySVTYPE_paragraph <- combined_Impact %>%
+  count(Group, SVTYPE)
+
+ggplot(countsBySVTYPE, aes(x = SVTYPE, y = n, fill = SVTYPE)) +
+  geom_bar(stat = "identity") + 
+  facet_wrap(~ Group) + 
+  theme_minimal() +
+  labs(title = "SVTYPE",
+       x = "SVTYPE",
+       y = "Count") +
+  scale_fill_manual(values = rcartocolor::carto_pal(5, "Safe")) +  
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    legend.position = "bottom"  
+  )
+
+ggplot(combined_Impact, aes(x = SVTYPE, y = ABS_SVLEN, fill = SVTYPE)) +
+  geom_boxplot() +  
+  facet_wrap(~ Group) + 
+  theme_minimal() +
+  labs(title = "SV Length by SVTYPE ",
+       x = "SVTYPE",
+       y = "SV Length") +
+  scale_fill_manual(values = rcartocolor::carto_pal(5, "Safe")) +  
+  theme(legend.position = "none") 
+
+ggplot(combined_Impact, aes(x = ABS_SVLEN, fill = Group)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~ Group) +
+  theme_minimal() +
+  labs(title = "SV Length",
+       x = "SV Length",
+       y = "Density") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+ggplot(combined_Impact, aes(x = AF, fill = Group)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~ Group) +
+  theme_minimal() +
+  labs(title = "Allele Frequency",
+       x = "Allele Frequency",
+       y = "Density") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+ggplot(combined_Impact, aes(x = ABS_SVLEN, y = AF, color = Group, size = AF)) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "SV Length and Allele Frequency",
+       x = " ABS SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe")) +
+  scale_size_continuous(name = "Allele Frequency") +
+  theme(legend.position = "bottom")
+
+combined_Impact_long_paragraph <- combined_Impact %>%
+  pivot_longer(cols = c(ABS_SVLEN, AF), names_to = "Variable", values_to = "Value")
+
+ggplot(combined_Impact_long, aes(x = Value, fill = Group)) +
+  geom_histogram(alpha = 0.6, binwidth = 5000) +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribution of SV Length and Allele Frequency",
+       x = "Value",
+       y = "Count") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe"))
+#install.packages("GGally")
+library(GGally)
+
+ggpairs(combined_Impact, columns = c("ABS_SVLEN", "AF"), mapping = aes(color = Group)) +
+  theme_minimal() +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+p1_paragraph <- ggplot(combined_Impact, aes(x = ABS_SVLEN, y = AF, color = Group)) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "SV Length and  Allele Frequency",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+p2_paragraph <- ggplot(combined_Impact, aes(x = ABS_SVLEN, fill = Group)) +
+  geom_density(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Density of SV Length",
+       x = "SV Length",
+       y = "Density") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+p3_paragraph <- ggplot(combined_Impact, aes(x = AF, fill = Group)) +
+  geom_density(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = " Allele Frequency for SVs ",
+       x = "Allele Frequency",
+       y = "density") +
+  scale_fill_manual(values = rcartocolor::carto_pal(12, "Safe"))
+
+grid.arrange(p1, p3, ncol = 2)
+
+```
+
+```{r}
+# Combine datasets and filter
+High_Impact_paragraph <- allSVs_paragraph %>% filter(IMPACT == 'HIGH') %>% mutate(Group = 'High Impact')
+Not_High_Impact_paragraph <- allSVs_paragraph %>% filter(IMPACT != 'HIGH') %>% mutate(Group = 'Not High Impact')
+combined_Impact_paragraph <- bind_rows(High_Impact, Not_High_Impact)
+
+# Filter the data
+less_than_500_paragraph <- combined_Impact %>% filter(ABS_SVLEN < 500)
+greater_than_500_paragraph <- combined_Impact %>% filter(ABS_SVLEN >= 500)
+
+plot_less_than_500_paragraph <- ggplot(less_than_500, aes(x = ABS_SVLEN, y = AF, color = SVTYPE, shape = Group)) +
+  geom_jitter(alpha = 0.6, width = 0.4, height = 0.4) +  
+  theme_minimal() +
+  labs(title = "SV Length < 500",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(5, "Safe")) +
+  scale_shape_manual(values = c(16, 17)) +
+  coord_cartesian(ylim = c(0, 1)) +  
+  theme(
+    legend.position = "none" 
+  )
+
+plot_greater_than_500_paragraph <- ggplot(greater_than_500, aes(x = ABS_SVLEN, y = AF, color = SVTYPE, shape = Group)) +
+  geom_jitter(alpha = 0.6, width = 0.4, height = 0.4) +  
+  theme_minimal() +
+  labs(title = "SV Length >= 500",
+       x = "SV Length",
+       y = "Allele Frequency") +
+  scale_color_manual(values = rcartocolor::carto_pal(5, "Safe")) +
+  scale_shape_manual(values = c(16, 17)) +
+    coord_cartesian(ylim = c(0, 1)) +  
+
+  theme(
+    legend.position = "right",
+    legend.box = "vertical",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    legend.key = element_rect(fill = "white", color = "white"),
+    legend.spacing.x = unit(1, 'cm')  
+  ) +
+  guides(
+    color = guide_legend(order = 1),  
+    shape = guide_legend(order = 2)   
+  )
+plot_greater_than_500
+grid.arrange(plot_less_than_500, plot_greater_than_500, ncol = 2)
+
+
+```
+
+
+```{r}
+
+sessionInfo()
+
+```

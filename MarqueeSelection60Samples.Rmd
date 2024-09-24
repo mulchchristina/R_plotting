@@ -1,0 +1,456 @@
+---
+title: "MarqueeSelection"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+
+install.packages("rcartocolor")
+library(rcartocolor) 
+nColor <- 12 
+scales::show_col(carto_pal(nColor, "Safe")) 
+colorblind <- carto_pal(nColor, "Safe")
+
+```
+
+ 
+```{r}
+svData <- read.table('svData.table.unique.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+```
+
+```{r}
+svData_unique <- svData %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+#all sv ids are unique
+```
+
+table of Omim phenotype data overlapping with mGap 2.5 Variants from predicted Damaging Vriants list where non blank values were selected from Predicted damaging Variants table from URL https://mgap.ohsu.edu/mgap/mGAP/variantList.view?release=20597#  20,135 entries were loaded into Rstudio and merged with the SV data by Common gene symbols between SVs and Omim/phenotype data. 
+
+```{r}
+
+Omim_data <- read.table('variantList_2024-02-27_14-20-08.tsv', sep = '\t', header = TRUE)
+
+```
+
+
+Merge Omim data svData
+```{r}
+
+#  left join
+svData_omim <- merge(svData, Omim_data, by.x = "OG", by.y = "overlappingGenes", all.x = TRUE)
+
+# Add OverlapsOmim column based on if data is there- cant use OG bc it was joined that way
+svData_omim$OverlapsOmim <- !is.na(svData_omim$omim_phenotype)
+
+```
+
+```{r}
+svData_omim <- svData_omim %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+```
+
+```{r}
+svIntersectExons <- read.table('svData.intersect.SVs.Exons.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectExons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+#add in exon overlaps 
+svData_omim <- merge(svData_omim, svIntersectExons, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+svData_omim$OverlapsExon <- !is.na(svData_omim$FEAT_START0)
+
+
+svData_omim <- svData_omim %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+
+
+```
+
+```{r}
+# Read the list of SV IDs from the file
+svIntersectWholeGene <- read.table('gene_overlap_list.txt', sep = '\t', header = FALSE)
+names(svIntersectWholeGene) <- c('SV_ID')
+
+# WholeGeneOverlap column with all values set to TRUE
+svIntersectWholeGene$WholeGeneOverlap <- TRUE
+
+# To not get dup cols: when WholeGeneOverlap column already exists in svData_omim, remove 
+if ("WholeGeneOverlap" %in% colnames(svData_omim)) {
+  svData_omim$WholeGeneOverlap <- NULL
+}
+
+# Merge the SV data with the whole gene overlap list
+svData_omim <- merge(svData_omim, svIntersectWholeGene, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+
+# replace NA  with FALSE
+svData_omim$WholeGeneOverlap[is.na(svData_omim$WholeGeneOverlap)] <- FALSE
+
+```
+
+```{r}
+svData_omim <- svData_omim %>% 
+  distinct(SV_ID, .keep_all = TRUE)
+```
+
+
+
+Count the number of Features for each subset of interest:
+how Many Svs have hotspot and Omim data
+```{r}
+
+# Count unique SV IDs that have OMIM entries
+svData_omim %>%
+  filter(OverlapsOmim) %>%
+  summarise(unique_sv_omim = n_distinct(SV_ID))
+
+
+```
+
+
+add in overlaps gene col to data 
+```{r}
+svData_omim <- svData_omim %>%
+  mutate(OverlapsGene = !is.na(OG))
+
+#how many unique SVs have gene overlaps?
+
+sv_with_GeneOverlap_count <- svData_omim %>%
+  filter(OverlapsGene) %>%
+  summarise(unique_sv_Gene = n_distinct(SV_ID))
+
+sv_with_GeneOverlap_count
+
+
+```
+
+Summerize categories on interest and write output files 
+
+
+```{r}
+
+af_high_impact_summary <- svData_omim %>%
+  filter(AF > 0.96) %>%  
+  group_by(IMPACT, VE, OverlapsOmim, SVTYPE, OverlapsExon) %>%  
+  summarise(
+    numberOf_sv = n_distinct(SV_ID),  
+    .groups = 'drop' 
+  )
+
+
+
+print(af_high_impact_summary)
+
+
+```
+
+
+```{r}
+HOMVAR_ALL_data <- svData_omim %>%
+  filter(HOM.VAR == 59) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap, HOM.VAR)
+
+#make sure they are unique
+HOMVAR_ALL_data  <- HOMVAR_ALL_data  %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+write.xlsx(HOMVAR_ALL_data , "HOMVAR_ALL_svData.xlsx", rowRames = FALSE)
+
+
+HOMVAR_Low_data <- svData_omim %>%
+  filter(HOM.VAR < 2) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap, HOM.VAR)
+
+#make sure they are unique
+HOMVAR_Low_data  <- HOMVAR_Low_data  %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+write.xlsx(HOMVAR_Low_data , "HOMVAR_Low_svData.xlsx", rowRames = FALSE)
+
+```
+
+
+Allele frequncies of interest
+```{r}
+WG_data <- svData_omim %>%
+  filter(WholeGeneOverlap == TRUE) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap)
+
+#make sure they are unique
+WG_data <- WG_data %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+write.xlsx(WG_data, "WholeGeneOverlap_svData.xlsx", rowRames = FALSE)
+
+
+high_af_data <- svData_omim %>%
+  filter(AF > 0.96) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap)
+
+write.csv(high_af_data, "high_af_svData.csv", row.names = FALSE)
+write.xlsx(high_af_data, "high_af_svData.xlsx", rowRames = FALSE)
+
+rare_af_data <- svData_omim %>%
+  filter(AF < 0.10) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap)
+
+#make sure they are unique
+high_af_data <- high_af_data %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+rare_af_data <- rare_af_data %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+#too large with this filter for excel 
+write.xlsx(rare_af_data, "rare_af_svData.xlsx", rowNames = FALSE)
+write.csv(rare_af_data, "rare_af_svData.csv", row.names = FALSE)
+
+#write files without BNDS as well
+high_af_noBND <- high_af_data %>%
+  filter(SVTYPE != "BND")
+write.xlsx(high_af_noBND, "high_af_noBND.xlsx", rowNames = FALSE)
+
+rare_af_noBND <- rare_af_data %>%
+  filter(SVTYPE != "BND")
+write.xlsx(rare_af_noBND, "rare_af_noBND.xlsx", rowNames = FALSE)
+
+```
+
+Subsets:
+```{r}
+#summary
+af_rare_impact_summary <- svData_omim %>%
+  filter(AF < 0.10) %>%  
+  group_by(IMPACT, VE, OverlapsOmim, SVTYPE, OverlapsExon) %>%  
+  summarise(
+    numberOf_sv = n_distinct(SV_ID),  
+    .groups = 'drop' 
+  )
+
+print(af_rare_impact_summary)
+
+```
+
+```{r}
+#  SVLEN > 125,000 bp
+longest_svs_data <- svData_omim %>%
+  filter(SVLEN > 125000) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon, WholeGeneOverlap)
+
+longest_svs_data <- longest_svs_data %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+write.xlsx(longest_svs_data, "longest_svs_svData.xlsx", rowNames = FALSE)
+
+longestSVs_noBND <- longest_svs_data %>%
+  filter(SVTYPE != "BND")
+write.xlsx(longestSVs_noBND, "LongestSvs_noBND.xlsx", rowNames = FALSE)
+
+```
+
+```{r}
+HighImpact <- svData_omim %>%
+  filter(IMPACT == High) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap)
+```
+
+Overlapping Exons
+```{r}
+OverlapsExon <- svData_omim %>%
+  filter(OverlapsExon == TRUE) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap)
+
+
+OverlapsExon_notHighImpact <- svData_omim %>%
+  filter(OverlapsExon == TRUE, IMPACT != "HIGH") %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap)
+
+# Write the filtered data to an Excel file
+write.csv(OverlapsExon_notHighImpact, "OverlapsExon_notHighImpact.csv")
+
+```
+
+
+
+Plots
+```{r}
+high_af_impact_summary <- high_af_data %>%
+  group_by(OverlapsExon, IMPACT) %>%
+  summarise(count = n(), Dataset = "High AF", .groups = 'drop')
+
+rare_af_impact_summary <- rare_af_data %>%
+  group_by(OverlapsExon, IMPACT) %>%
+  summarise(count = n(), Dataset = "Rare AF", .groups = 'drop')
+
+longest_svs_impact_summary <- longest_svs_data %>%
+  group_by(OverlapsExon, IMPACT) %>%
+  summarise(count = n(), Dataset = "Longest SVs", .groups = 'drop')
+
+all_svs_impact_summary <- svData_omim %>%
+  group_by(OverlapsExon, IMPACT) %>%
+  summarise(count = n(), Dataset = "All SVs", .groups = 'drop')
+
+# Combine all summaries
+total_summary <- bind_rows(high_af_impact_summary, rare_af_impact_summary, longest_svs_impact_summary, all_svs_impact_summary)
+
+
+# Create bar plot
+bar_plot_OG <- ggplot(total_summary, aes(x = OverlapsExon, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = colorblind) +  
+  labs(title = "Counts of Exon Overlaps ",
+       x = "Overlaps Exon",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+bar_plot_OG
+
+bar_plot_impact_OG <- ggplot(total_summary, aes(x = OverlapsExon, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~IMPACT, scales = "free_y") +  
+    scale_fill_manual(values = colorblind) +  
+  labs(title = "Counts of Exon Overlaps by Impact",
+       x = "Overlaps Exon",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+bar_plot_impact_OG
+
+#fraction
+total_svs_by_dataset <- total_summary %>%
+  group_by(Dataset) %>%
+  summarise(total_svs = sum(count), .groups = 'drop')
+
+# Join this back to your summary to calculate fractions
+total_summary <- total_summary %>%
+  left_join(total_svs_by_dataset, by = "Dataset") %>%
+  mutate(fraction = count / total_svs)
+
+
+bar_plot_impact_OG_fraction <- ggplot(total_summary, aes(x = OverlapsExon, y = fraction, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~IMPACT, scales = "free_y") + 
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 0.6)) + 
+    scale_fill_manual(values = colorblind) +  
+  labs(title = "Fraction of Exon Overlaps by Impact",
+       x = "Overlaps Exon",
+       y = "Fraction of Total SVs") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+bar_plot_impact_OG_fraction
+
+bar_plot_impact_fraction <- ggplot(total_summary, aes(x = Dataset, y = fraction, fill = IMPACT)) +
+  geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = colorblind) +  
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 0.5)) + 
+  labs(title = "Fraction of each data set by Impact that overlaps Exons",
+       x = "Subset",
+       y = "Fraction of Total SVs") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+bar_plot_impact_fraction
+
+
+```
+Plots for Exon overlap categories
+```{r}
+
+# filter where OverlapsExon is TRUE
+exon_overlap_data <- svData_omim %>%
+  filter(OverlapsExon == TRUE)
+
+# Prepare data for VE pie chart
+ve_pie_data <- exon_overlap_data %>%
+  count(VE) %>%
+  arrange(desc(n)) %>%
+  top_n(5, n) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+ve_pie_chart <- ggplot(ve_pie_data, aes(x = "", y = percentage, fill = VE)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "Top 5 VE Categories for Exon Overlaps", y = "Percentage", fill = "VE") +
+  theme_void()
+
+# Display the VE pie chart
+print(ve_pie_chart)
+
+# Prepare data for omim_phenotype pie chart
+omim_pie_data <- exon_overlap_data %>%
+  count(SVTYPE) %>%
+  arrange(desc(n)) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+ggplot(omim_pie_data, aes(x = "", y = percentage, fill = SVTYPE)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "SYTYPE dist of SVs overlapping Exons", y = "Percentage", fill = "SVTYPE") +
+  theme_void()
+
+
+
+
+```
+
+```{r}
+
+# Define the vector of gene names to select
+gene_names <- c("TALDO1", "NADSYN1", "ADGRE2", "ROBO2", "TRAF3IP1", "VAC14",
+                "RPL13A", "RUBCN", "VAPB", "QRICH2", "DCLRE1C", "HLA-DRB5",
+                "CNTN6", "TBC1D20", "TRIM5", "PTPRN2", "ESYT2", "KMT2A",
+                "NFU1", "SLCO1B3","FSCN2","EIF2AK4","RPL13", "BRF1|ENSMMUG00000060524|ENSMMUG00000044341|ENSMMUG00000050195|ENSMMUG00000052929|ENSMMUG00000059683|ENSMMUG00000060892|ENSMMUG00000032019|ENSMMUG00000052535|ENSMMUG00000052677|ENSMMUG00000059525|ENSMMUG00000061578|ENSMMUG00000058548")
+
+# Assuming svData_hotSpotGenes_omim is your initial dataframe
+# Filter the dataframe by gene names
+Marquee_data <- svData_omim %>%
+  filter(OG %in% gene_names) %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene, OverlapsExon)
+
+# Write the filtered data to a CSV file
+write.csv(Marquee_data, "MarqueeGenes_svData.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+#the end of chromsome 7 has many split dups
+chrom7_7kb_Dups_summary <- svData_omim %>%
+  filter(SVLEN > 7000 & CHROM == 7 & SVTYPE == "DUP" ) %>%
+  group_by(IMPACT, VE, OverlapsOmim, SVTYPE) %>%  
+  summarise(
+    numberOf_sv = n_distinct(SV_ID),  
+    .groups = 'drop' 
+  )
+
+print(chrom7_7kb_Dups_summary)
+chrom7_7kb_Dups_data <- svData_omim %>%
+    filter(SVLEN > 7000 & CHROM == 7 & SVTYPE == "DUP") %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, omim, omim_phenotype, OverlapsGene)
+
+write.xlsx( chrom7_7kb_Dups_data, "chrom7_7kb_Dups.xlsx", rowNames = FALSE)
+
+```
+

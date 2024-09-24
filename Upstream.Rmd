@@ -1,0 +1,288 @@
+---
+title: "UpstreamDownstream_averages"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+```
+
+
+```{r}
+
+# Read file intersect_rheMac10.1kbmakewindows_Score_bins_intersect.txt gerp.intersect.100.avgByWindow.bed'
+#BND_upstream <- read.table('svData.BND.txt', header = TRUE, stringsAsFactors = FALSE)
+ 
+#AF05_upstream <- read.table('svData.AF05.txt', header = TRUE, stringsAsFactors = FALSE, colClasses = c("character", rep("numeric", 9)))
+
+A05_upstream <- svData.AF05 
+colnames(A05_upstream)
+
+
+A05_upstream <- A05_upstream %>% 
+  filter(rowSums(!is.na(.)) == 10)
+
+```
+
+```{r}
+
+A05_upstream$SV_AVG <- as.numeric(gsub("[^0-9.]", "", A05_upstream$SV_AVG))
+
+A05_upstream <- A05_upstream %>% 
+  mutate_all(~ifelse(is.na(.), NA, as.numeric(.))) %>%
+  mutate(SV_ID = as.character(SV_ID))
+
+```
+
+```{r}
+
+# ratio of the coverage over the SV relative to the up- or down-stream portions. This would normalize for differences in localized coverage
+
+
+
+```
+
+```{r}
+
+
+# Calculate coverage ratio for upstream
+A05_upstream$UPSTREAM_RATIO_TOTAL <- A05_upstream$UPSTREAM_TOTAL / A05_upstream$SV_TOTAL
+
+# Calculate coverage ratio for downstream
+A05_upstream$DOWNSTREAM_RATIO_TOTAL <- A05_upstream$DOWNSTREAM_TOTAL / A05_upstream$SV_TOTAL
+
+#
+plot_ratio_totals <- tidyr::gather(A05_upstream, key = "fraction", value = "coverage_ratio", UPSTREAM_RATIO_TOTAL, DOWNSTREAM_RATIO_TOTAL)
+
+```
+
+
+```{r}
+
+# Calculate coverage ratio for upstream
+A05_upstream$UPSTREAM_FRACTION_AVG <- A05_upstream$UPSTREAM_AVG / A05_upstream$SV_AVG
+
+# Calculate coverage ratio for downstream
+A05_upstream$DOWNSTREAM_FRACTION_AVG <- A05_upstream$DOWNSTREAM_AVG / A05_upstream$SV_AVG
+
+# Gather data for ggplot
+plot_ratio_averages <- tidyr::gather(A05_upstream, key = "fraction", value = "coverage_fraction", UPSTREAM_FRACTION_AVG, DOWNSTREAM_FRACTION_AVG)
+
+```
+
+```{r}
+
+# Plot
+ggplot(plot_ratio_totals, aes(x = fraction, y = coverage_ratio, fill = SV_TOTAL)) +
+  geom_boxplot() +
+  labs(title = "Totals",
+       x = " Log Fraction up or downstream/ SV ",
+       y = "Coverage Ratio") +
+  scale_y_log10() +
+  theme_minimal()
+
+ggplot(plot_ratio_totals, aes(x = fraction, y = coverage_ratio, fill = SV_TOTAL)) +
+  geom_jitter() +
+  labs(title = "Totals",
+       x = " Log Fraction up or downstream/ SV ",
+       y = "Coverage Ratio") +
+  scale_y_log10() +
+  theme_minimal()
+
+# Plot
+ggplot(plot_ratio_totals, aes(x = fraction, y = coverage_ratio, fill = SV_TOTAL)) +
+  geom_boxplot() +
+  labs(title = "Totals",
+       x = "Fraction up or downstream/ SV ",
+       y = "Coverage Ratio") +
+  theme_minimal()
+
+ggplot(plot_ratio_totals, aes(x = fraction, y = coverage_ratio, fill = SV_TOTAL)) +
+  geom_jitter() +
+  labs(title = "Totals",
+       x = "Fraction up or downstream/ SV ",
+       y = "Coverage Ratio") +
+  theme_minimal()
+
+```
+
+```{r}
+A_05_outliers <- plot_ratio_totals[plot_ratio_totals$coverage_ratio > 120000, ]
+
+# Write outliers to Excel
+write_xlsx(A_05_outliers, "A05_outliers.xlsx")
+
+```
+
+
+
+```{r}
+
+ggplot(A05_upstream, aes(x = UPSTREAM_AVG)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "UPSTREAM_AVG",
+       x = "Count",
+       y = "Density") +
+  theme_minimal()
+ 
+# DO SV_TOTAL, and DOWNSTREAM_TOTAL 
+
+```
+
+```{r}
+```
+
+
+```{r}
+bin_width <- 500
+
+# Choose the metric to plot
+metric_to_plot <- "SV_TOTAL"
+
+# Print the type of the 'SV_TOTAL' column
+print(class(A05_upstream$SV_TOTAL))
+
+# Create a bar plot with binning
+ggplot(A05_upstream, aes(x = cut(.data[[metric_to_plot]], breaks = seq(0, max(.data[[metric_to_plot]]) + bin_width, bin_width)), fill = factor(CONTIG))) +
+  geom_bar(stat = "count", position = "stack", alpha = 0.5) +
+  
+  # Customize the plot
+  labs(title = paste("Counts per Bin of", metric_to_plot),
+       x = metric_to_plot,
+       y = "Count",
+       fill = "Contig") +
+  
+  theme_minimal()
+
+
+
+
+
+```
+
+```{r}
+
+plot_A05_total <- A05_upstream[, c("UPSTREAM_TOTAL", "SV_TOTAL",  "DOWNSTREAM_TOTAL")]
+
+plot_long_A05_upstream_total <- gather(
+plot_A05_total, key = "Category", value = "Count")
+
+plot_A05_ave <- A05_upstream[, c("UPSTREAM_AVG",  "SV_AVG", "DOWNSTREAM_AVG")]
+plot_long_A05_upstream_ave <- gather(
+plot_A05_ave, key = "Category", value = "Count")
+
+print(plot_A05_ave)
+print(plot_A05_total)
+
+```
+
+```{r}
+
+# Density plot for UPSTREAM_TOTAL, SV_TOTAL, DOWNSTREAM_TOTAL
+ggplot(plot_long_A05_upstream_total, aes(x = Count, fill = Category)) +
+  geom_dotplot(alpha = 0.7) +
+  labs(title = "Total Counts",
+       x = "Count",
+       y = "")
+# Density plot for UPSTREAM_TOTAL, SV_TOTAL, DOWNSTREAM_TOTAL
+ggplot(plot_long_A05_upstream_ave, aes(x = Count, fill = Category)) +
+  geom_dotplot(alpha = 0.7) +
+  labs(title = "Average Counts",
+       x = "Count",
+       y = "")
+
+```
+
+```{r}
+# Density plot for UPSTREAM_AVG, SV_AVG, DOWNSTREAM_AVG
+ggplot(plot_long_A05_upstream_ave, aes(x = Count, fill = Category)) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Density Plot - Average Counts",
+       x = "Count",
+       y = "Density")
+
+
+```
+
+
+
+```{r}
+
+
+
+plot_A05_upstream_total <- A05_upstream %>%
+  select(UPSTREAM_TOTAL, SV_TOTAL, DOWNSTREAM_TOTAL) %>%
+  gather(Category, Count)
+
+ggplot(plot_A05_upstream_total, aes(x = Count, fill = Category)) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Density Plot - Total Counts",
+       x = "Count",
+       y = "Density")
+
+```
+```{r}
+
+
+A05_upstream_summary <- A05_upstream %>%
+  select(SV_AVG, SV_TOTAL, UPSTREAM_AVG, UPSTREAM_TOTAL, DOWNSTREAM_AVG, DOWNSTREAM_TOTAL, SV_ID)
+
+# Melt the data for easy plotting
+melted_A05 <- melt(A05_upstream_summary, id.vars = "SV_ID")
+
+# Create a boxplot
+ggplot(melted_A05, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales = "free_y", ncol = 2) +
+  labs(title = "Totals and Averages by SV_ID",
+       x = "Variable",
+       y = "Value") +
+  theme_minimal()
+
+ggplot(melted_A05, aes(x = variable, y = value, fill = variable)) +
+  geom_dotplot() +
+  facet_wrap(~SV_ID, scales = "free_y", ncol = 2) +
+  labs(title = "Totals and Averages by SV_ID",
+       x = "Variable",
+       y = "Value") +
+  theme_minimal()
+
+```
+
+```{r}
+
+#read in the new VCF fields
+FilteredSVdata <- read.table('PBSV_CCS_CLR_merge.snpEff.annotated.ft.filtered.filtered.filtered.txt.gz', header = FALSE, stringsAsFactors = FALSE)
+# column names
+colnames(FilteredSVdata) <- c("CHROM", "POS", "SV_ID", "REF", "ALT", "QUAL",
+"FILTER", "NSAMPLES", "NCALLED", "AC", "AF", "DP", "VAR", "NO-CALL", "TYPE", "INFO", "OG", "SVLEN", "SVTYPE", "IMPACT", "ExcHet", "HWE")
+
+FilteredSVdata <- FilteredSVdata[, 1:22]
+
+```
+
+add in some relevant information
+```{r}
+
+# Merge based on SV_ID
+A05_upstream_svData <- merge(A05_upstream, FilteredSVdata, by = "SV_ID", all.x = TRUE)
+
+
+```
+
+
+```{r}
+
+
+

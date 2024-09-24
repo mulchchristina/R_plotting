@@ -1,0 +1,2061 @@
+---
+title: "Subsetting_PacBio_data"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory/SV_filtering")
+
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+library(rcartocolor)
+library(writexl)
+library(stringr)
+library(ComplexHeatmap)
+
+nColor <- 12
+scales::show_col(carto_pal(nColor, "Safe"))
+colorblind <- carto_pal(nColor, "Safe")
+
+
+
+```
+
+```{r}
+# Load SV data from vcf to table output 
+svData <- read.table('PacBioSubsets.all.table.txt.gz', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+# Calculate reference lengths
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+# Ensure unique SV IDs
+svData_unique <- svData %>% distinct(SV_ID, .keep_all = TRUE)
+
+```
+
+
+```{r}
+liftedData <- unique(read.table('/Users/mulch/Documents/R_working_directory/SV_filtering/PBSV_CCS_CLR_merge.snpEff.ft.annotated.filtered.selectVariants.snpEff.annotated.noAnnotations.snpEff.annotated.lifted-99.table.txt.gz', header = T, sep = '\t', quote = ''))
+liftedData <- liftedData[, c(1, 4)]
+names(liftedData) <- c('LiftedChrom', 'ID')
+
+# Merge SV and Lift data
+svData <- merge(svData, liftedData, by.x = "SV_ID", by.y = "ID", all.x = TRUE)
+svData <- svData %>% 
+  mutate(LiftedToHg19 = !is.na(LiftedChrom))
+
+svData <- svData %>% distinct(SV_ID, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+Omim data- updated
+```{r}
+# Load Omim data
+Omim_data <- unique(read.table('omim.table.txt', header = T, sep = '\t', quote = ''))[c('GENESYMBOL', 'PHENOTYPES', 'MIMNUMBER')]
+
+#Omim_data <- read.table('variantList_2024-02-27_14-20-08.tsv', sep = '\t', header = TRUE)
+
+# Merge SV and Omim data
+svData_omim <- merge(svData, Omim_data, by.x = "OG", by.y = "GENESYMBOL", all.x = TRUE)
+svData_omim$OverlapsOmim <- !is.na(svData_omim$MIMNUMBER)
+svData_omim <- svData_omim %>% distinct(SV_ID, .keep_all = TRUE)
+
+
+```
+Load Exon Overlaps- Any overlap with exons allowed
+```{r}
+#exonOverlaps <- unique(read.table('exon_overlap.vcf.gz'))
+
+# Load exon intersection data- updated
+svIntersectExons <- read.table('exon_overlap.vcf.gz', sep = '\t')[c(3, 72, 73, 74)]
+names(svIntersectExons) <- c('SV_ID', 'EXON_OG', 'Exon_ID', 'Exon_INTERSECT_LENGTH')
+
+# Merge and flag exon overlaps
+svData_omim <- merge(svData_omim, svIntersectExons, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+svData_omim$OverlapsExon <- !is.na(svData_omim$EXON_OG)
+svData_omim <- svData_omim %>% distinct(SV_ID, .keep_all = TRUE)
+
+```
+
+Gene overlaps- Any overlap with Genes allowed- permissive, Whole gene overlap strict to length of Feature.
+```{r}
+#Whole gene overlaps- updated
+svData_omim <- svData_omim %>%
+mutate(OverlapsGene = !is.na(OG))
+
+fullGeneOverlaps <- read.table('gene_overlap.vcf.gz', sep = '\t')[c(3, 72, 73, 74)]
+names(fullGeneOverlaps) <- c('SV_ID', 'WholeGene_OG', 'WG_ID', 'WG_INTERSECT_LENGTH')
+svData_omim <- merge(svData_omim, fullGeneOverlaps, by = 'SV_ID', all.x = TRUE, all.y = FALSE)
+svData_omim$fullGeneOverlap <- !is.na(svData_omim$WholeGene_OG)
+svData_omim <- svData_omim %>% distinct(SV_ID, .keep_all = TRUE)
+
+
+```
+
+Human Data overlapping with SV data from https://www.ncbi.nlm.nih.gov/dbvar/content/clinvar_summary/ 
+updated
+```{r}
+
+#load the ClinVar Clinically signifigant Variants that overlap(any overlap)
+
+cvData <- cvDataAll %>% 
+  mutate(CLNSIG = gsub(CLNSIG, pattern = '%20', replacement = ' ')) %>%
+  filter(!grepl(CLNSIG, pattern = 'Benign', ignore.case = TRUE)) %>% 
+  filter(!grepl(CLNSIG, pattern = 'Uncertain', ignore.case = TRUE)) %>% 
+  filter(!grepl(CLNSIG, pattern = 'not provided', ignore.case = TRUE)) %>% 
+  filter(!grepl(CLNSIG, pattern = 'Conflicting', ignore.case = TRUE))
+
+cvData$SVLEN <- as.integer(cvData$SVLEN)
+cvData$ABS_SVLEN <- abs(cvData$SVLEN)
+sort(unique(cvData$CLNSIG))
+
+cvDataLong <- cvData %>%
+  filter(!is.na(OG)) %>%
+  filter(ABS_SVLEN < 100000) %>%
+  select(ID, SVTYPE, OG) %>%
+  tidyr::separate_rows(OG, sep = '\\|')
+
+  cvDataLong <- cvDataLong[c('ID', 'SVTYPE', 'OG')]
+  names(cvDataLong) <- c('ClinVar_ID', 'SVTYPE', 'OG')
+  cvDataLong <- cvDataLong %>% group_by(OG, SVTYPE) %>% summarise(ClinVar_ID = paste0(sort(unique(ClinVar_ID)), collapse = ', '))
+
+
+```
+
+Human data overlaps for Clinvar common 
+```{r}
+#Load overlaps of .75 recprical overlaps, clinical significance and SVtype overlaps
+# Load overlaps of 0.75 reciprocal overlaps, clinical significance, and SV type overlaps
+hg19clinvarCommonSVoverlap <- read.table('svData.intersect.SVs.hg19_SVs_.75.txt', sep = '\t', header = FALSE)[c(4, 5, 6, 7, 8, 9, 10, 11, 12)]
+
+names(hg19clinvarCommonSVoverlap) <- c('SV_ID', 'SVTYPE_sv', 'hg19chrom', 'hg19clinSTART', 'hg19clinEND', 'SVTYPE_hg19', 'CLNSIG', 'Phenotype', 'INTERSECT_LENGTH_clinvarCom')
+
+
+
+#add a col for if type matches
+hg19clinvarCommonSVoverlap$MatchingSVTYPE_clinvarCommon <- ifelse(hg19clinvarCommonSVoverlap$SVTYPE_sv == hg19clinvarCommonSVoverlap$SVTYPE_hg19, TRUE, FALSE)
+
+#subset to those that are same type 
+sameType_hg19clinvarCommonSVoverlap <- subset(hg19clinvarCommonSVoverlap,  MatchingSVTYPE_clinvarCommon == TRUE)
+
+# merge with svData_omim based on SV_ID
+svData_omim <- merge(svData_omim, sameType_hg19clinvarCommonSVoverlap, by = "SV_ID", all.x = TRUE, all.y = FALSE)
+
+svData_omim <- svData_omim %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+```
+
+ SV human data from gnomad 
+```{r}
+#Load overlaps of .75 recprical overlaps, for gnomad with SVtype overlaps
+# Load overlaps of 0.75 reciprocal overlaps, clinical significance, and SV type overlaps
+hg19gnomadSVoverlap <- read.table('svData.intersect.SVs.hg19_gnomadSVs_.75.txt', sep = '\t', header = FALSE)[c(4, 5, 6, 7, 8, 9, 10, 11, 12)]
+
+
+names(hg19gnomadSVoverlap) <- c('SV_ID', 'SVTYPE_sv', 'hg19chrom', 'hg19gnomadSTART', 'hg19gnomadEND', 'SVTYPE_hg19', 'CLNSIG', 'Phenotype_gnomad', 'INTERSECT_LENGTH_gnomad')
+
+#add a col for if type matches
+hg19gnomadSVoverlap$MatchingSVTYPE_gnomad <- ifelse(hg19gnomadSVoverlap$SVTYPE_sv == hg19gnomadSVoverlap$SVTYPE_hg19, TRUE, FALSE)
+
+#subset to those that are same type 
+sameType_hg19gnomadSVoverlap <- subset(hg19gnomadSVoverlap,  MatchingSVTYPE_gnomad == TRUE)
+
+# Merge with svData_omim based on SV_ID
+svData_omim <- merge(svData_omim, sameType_hg19gnomadSVoverlap, by = "SV_ID", all.x = TRUE, all.y = FALSE)
+
+svData_omim <- svData_omim %>%
+  distinct(SV_ID, .keep_all = TRUE)
+
+```
+
+write a function that makes a new tab and makes a table for each tab that counts unique SV_IDS: total, and for each true false col how many are true.
+
+
+Subsets:
+add in 90 percent overlap. 
+```{r}
+
+# Excel file with multiple tabs
+create_summary_files <- function(svData_omim, txt_output_file, excel_output_file, row_limit = 3000) {
+  
+  # Define the binning functions for AF and SVLEN
+  bin_AF <- function(AF) {
+    case_when(
+      AF < 0.01 ~ "singletons",
+      AF >= 0.01 & AF < 0.05 ~ "low frequency",
+      AF >= 0.05 & AF < 0.25 ~ "medium frequency",
+      AF >= 0.25 ~ "common"
+    )
+  }
+  
+  bin_SVLEN <- function(SVLEN) {
+    case_when(
+      SVLEN <= 50 ~ "0-50",
+      SVLEN > 50 & SVLEN <= 100 ~ "50-100",
+      SVLEN > 100 & SVLEN <= 300 ~ "100-300",
+      SVLEN > 300 & SVLEN <= 350 ~ "300-350 (ALU)",
+      SVLEN > 350 & SVLEN <= 500 ~ "350-500",
+      SVLEN > 500 & SVLEN <= 1000 ~ "500-1000",
+      SVLEN > 1000 & SVLEN <= 2000 ~ "1000-2000",
+      SVLEN > 2000 & SVLEN <= 10000 ~ "2000-10000",
+      SVLEN > 10000 ~ "greater than 10k"
+    )
+  }
+  
+  # create the table
+  create_summary_table <- function(data, subset_name) {
+    total_unique_SV_IDs <- n_distinct(data$SV_ID)
+    
+    data %>%
+      mutate(
+        AF_bin = bin_AF(AF),
+        SVLEN_bin = bin_SVLEN(SVLEN)
+      ) %>%
+      group_by(AF_bin, SVTYPE, SVLEN_bin, IMPACT, OverlapsExon, WholeGeneOverlap) %>%
+      summarise(
+        unique_SV_IDs = n_distinct(SV_ID),
+        .groups = 'drop'
+      ) %>%
+      ungroup() %>%
+      mutate(
+        Subset = subset_name,
+        total_unique_SV_IDS = total_unique_SV_IDs
+      ) %>%
+      select(Subset, AF_bin, SVTYPE, SVLEN_bin, IMPACT, OverlapsExon, WholeGeneOverlap, total_unique_SV_IDS, unique_SV_IDs)
+  }
+  
+ #Subsets with remove BNDs from all
+subsets <- list(
+  longestSVs_noBND = svData_omim %>%
+    filter(SVLEN > 125000, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  Pathogenic_matchingType_OE = svData_omim %>%
+    filter(Pathogenic == Pathogenic, MatchingSVTYPE == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+    ClinvarCommon_matchingType_OE = svData_omim %>%
+    filter(MatchingSVTYPE_clinvarCommon == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+    Gnomad_matchingType_OE = svData_omim %>%
+    filter(MatchingSVTYPE_gnomad == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+      Whole_gene_Overlap = svData_omim %>%
+    filter(WholeGeneOverlap == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  HomVarRare_OverlapsExon = svData_omim %>%
+    filter(HOM.VAR < 2, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  Rare_Allele_Frequency_OE = svData_omim %>%
+    filter(AF < 0.1, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  Very_Common_Allele_Frequency_OE = svData_omim %>%
+    filter(AF > 0.97, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  Overlaps_Exon_High_Impact = svData_omim %>%
+    filter(OverlapsExon == TRUE, IMPACT == "HIGH", SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR),
+  
+  Overlaps_Exon = svData_omim %>%
+    filter(OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR)
+)
+
+  
+  # summary metrics
+  summary_metrics <- list()
+  
+  for (subset_name in names(subsets)) {
+    subset_data <- subsets[[subset_name]]
+    summary_table <- create_summary_table(subset_data, subset_name)  
+    summary_metrics[[subset_name]] <- summary_table
+  }
+  
+  combined_summary <- bind_rows(summary_metrics, .id = "Subset")
+  
+  # Write the main data frame to a tab-separated .txt file
+  write.table(txt_output_file, sep = "\t", row.names = FALSE, quote = FALSE)
+  
+  #if the excel file already exists and delete, ie overwrite
+  if (file.exists(excel_output_file)) {
+    file.remove(excel_output_file)
+  }
+  
+  #write to tabs
+  workbook <- createWorkbook()
+  addWorksheet(workbook, sheetName = "svData_omim")
+  writeData(workbook, sheet = "svData_omim", x = svData_omim)
+  
+  for (subset_name in names(subsets)) {
+    addWorksheet(workbook, sheetName = subset_name)
+    writeData(workbook, sheet = subset_name, x = subsets[[subset_name]])
+  }
+  
+  addWorksheet(workbook, sheetName = "Summary_Metrics")
+  writeData(workbook, sheet = "Summary_Metrics", x = combined_summary)
+  
+  # Save the workbook
+  saveWorkbook(workbook, file = excel_output_file)
+}
+
+# Assuming svData_omim is already loaded
+create_summary_files(svData_omim, "all_SVs.txt", "svData_Subsets_summary.xlsx", row_limit = 3000)
+
+```
+
+Plotting and Summaries
+
+```{r}
+#compare between subsets
+summary_metrics <- read.delim("~/Documents/R_working_directory/Summary_metrics.txt")
+#compare groups to total SVs number of SVs identified by each category (e.g. HIGH impact, spanning gene, etc.), maybe showing # and percent of total SVs,
+
+ggplot(summary_metrics, aes(x = AF_bin, fill = SVLEN_bin)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = colorblind) +
+  facet_wrap(~ Subset, scales = "free_x") +  # Facet by Subset
+  labs(title = "Comparison of AF_bin and SVLEN_bin across Subsets",
+       x = str_wrap("AF_bin", width = 50),  
+       y = "Count") +
+  theme_minimal()
+
+ggplot(summary_metrics, aes(x = AF_bin, fill = IMPACT)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = colorblind) +
+  facet_wrap(~ Subset, scales = "free_x") +  # Facet by Subset
+  labs(title = "Comparison of AF_bin Impact across Subsets",
+       x = str_wrap("AF_bin", width = 50),  
+       y = "Count") +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+
+
+
+```
+
+Comparing subsets to all SVs
+```{r}
+
+
+#set up subsets identical to excel output
+total_sv_summary <- bind_rows(
+  svData_omim %>% filter(OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(OverlapsExon == TRUE, IMPACT == "HIGH", SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Overlaps_Exon_High_Impact", .groups = 'drop'),
+    svData_omim %>% filter(AF > 0.97, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Very_Common_Allele_Frequency_OverlapsExon", .groups = 'drop'),
+      svData_omim %>% filter(AF < 0.1, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Rare_Allele_Frequency_OverlapsExon", .groups = 'drop'),
+    svData_omim %>% filter(HOM.VAR < 2, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "HomVarRare_OverlapsExon", .groups = 'drop'),
+        svData_omim %>% filter(SVLEN > 125000, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "longestSVs_noBND", .groups = 'drop'),
+      svData_omim %>% filter(Pathogenic == Pathogenic, MatchingSVTYPE == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap ) %>% summarise(count = n(), Dataset = "Pathogenic_matchingType_OverlapsExon", .groups = 'drop'),
+      svData_omim %>% filter(MatchingSVTYPE_clinvarCommon == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "ClinvarCommon_matchingType_OverlapsExon", .groups = 'drop'),
+    svData_omim %>% filter(WholeGeneOverlap == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Whole_gene_Overlap", .groups = 'drop'),
+    svData_omim %>% filter(MatchingSVTYPE_gnomad == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Gnomad_matchingType_OE", .groups = 'drop'),
+  svData_omim %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap) %>% summarise(count = n(), Dataset = "All SVs", .groups = 'drop')
+)
+
+```
+
+```{r}
+
+bar_plot_OG <- ggplot(total_sv_summary, aes(x = OverlapsExon, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Count per subset", x = "Overlaps Exon", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "right")
+bar_plot_OG
+
+ggplot(total_sv_summary, aes(x = WholeGeneOverlap, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Counts per subset", x = "Whole gene Overlaps", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+ggplot(total_sv_summary, aes(x = IMPACT, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = "Count per subset", x = "Impact", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "right") 
+
+
+bar_plot_OG <- ggplot(total_sv_summary, aes(x = OverlapsExon, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_log10() +  
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts of Exon Overlaps Across Different Subsets", width = 40),
+       x = str_wrap("Overlaps Exon", width = 10), 
+       y = "Count (log scale)") +
+  theme(
+    legend.position = "right",
+    plot.margin = margin(20, 20, 20, 20) 
+  )
+print(bar_plot_OG)
+
+#WholeGeneOverlap with log scale
+bar_plot_WG <- ggplot(total_sv_summary, aes(x = WholeGeneOverlap, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_log10() +  
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts of Whole Gene Overlaps Across Different Subsets", width = 40),
+       x = str_wrap("Whole Gene Overlaps", width = 10), 
+       y = "Count (log scale)") +
+  theme(
+    legend.position = "right",
+    plot.margin = margin(20, 20, 20, 20) 
+  )
+print(bar_plot_WG)
+
+# Bar plot of IMPACT with log scale
+bar_plot_IMPACT <- ggplot(total_sv_summary, aes(x = IMPACT, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_log10() +  
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts by Impact Across Different Subsets", width = 40),
+       x = str_wrap("Impact", width = 10), 
+       y = "Count (log scale)") +
+   theme(
+    legend.position = "right",
+    plot.margin = margin(50, 20, 20, 50) 
+  )
+print(bar_plot_IMPACT)
+
+# Bar plot of IMPACT with log scale
+total_sv_summary_filtered <- total_sv_summary %>%
+  filter(!is.na(SVTYPE))
+
+# Create the bar plot with log scale for SVTYPE
+bar_plot_SVTYPE <- ggplot(total_sv_summary_filtered, aes(x = SVTYPE, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_log10() +  
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts by SVTYPE Across Different Subsets", width = 40),
+       x = str_wrap("SVTYPE", width = 10), 
+       y = "Count (log scale)") +
+  theme(
+    legend.position = "right",
+    plot.margin = margin(50, 20, 20, 50) 
+  )
+bar_plot_SVTYPE
+
+#no log 
+bar_plot_SVTYPE <- ggplot(total_sv_summary_filtered, aes(x = SVTYPE, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts by SVTYPE Across Different Subsets", width = 40),
+       x = str_wrap("SVTYPE", width = 10), 
+       y = "Count") +  # Removed mention of log scale in the y-axis label
+  theme(
+    legend.position = "right",
+    plot.margin = margin(50, 20, 20, 50) 
+  )
+
+print(bar_plot_SVTYPE)
+
+
+```
+
+Add in fractions
+```{r}
+names(svData_omim) <- make.names(names(svData_omim), unique = TRUE, allow_ = TRUE)
+#total SVs
+total_sv_count <- svData_omim %>%
+  filter(SVTYPE != "BND") %>%
+  summarise(total_count = n())
+
+#with fractions
+
+total_sv_summary_fractions <- bind_rows(
+  svData_omim %>% filter(OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(OverlapsExon == TRUE, IMPACT == "HIGH", SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "Overlaps_Exon_High_Impact", .groups = 'drop'),
+  svData_omim %>% filter(AF > 0.97, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "Very_Common_Allele_Frequency_OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(AF < 0.1, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "Rare_Allele_Frequency_OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(HOM.VAR < 2, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "HomVarRare_OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(SVLEN > 125000, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "longestSVs_noBND", .groups = 'drop'),
+  svData_omim %>% filter(Pathogenic == Pathogenic, MatchingSVTYPE == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "Pathogenic_matchingType_OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(MatchingSVTYPE_clinvarCommon == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "ClinvarCommon_matchingType_OverlapsExon", .groups = 'drop'),
+  svData_omim %>% filter(WholeGeneOverlap == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "Whole_gene_Overlap", .groups = 'drop'),
+  svData_omim %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>% summarise(count = n(), Dataset = "All SVs", .groups = 'drop')
+) %>%
+  mutate(fraction = count / total_sv_count$total_count * 100)
+
+
+```
+
+Plots of fraction of totals
+split axis 0 to 10 own plot
+```{r}
+#with fractions- just human overlapping sets
+
+total_sv_count <- svData_omim %>%
+  filter(SVTYPE != "BND") %>%
+  summarise(total_count = n())
+
+#human_sv_summary_fractions
+human_sv_summary_fractions <- svData_omim %>%
+  filter(Pathogenic == Pathogenic & MatchingSVTYPE == TRUE & SVTYPE != "BND") %>%
+  group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+  summarise(count = n(), Dataset = "Pathogenic_matchingType Clinvar Pathogenic", .groups = 'drop') %>%
+  bind_rows(
+    svData_omim %>%
+      filter(MatchingSVTYPE_clinvarCommon == TRUE & SVTYPE != "BND") %>%
+      group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+      summarise(count = n(), Dataset = "ClinvarCommon_matchingType -r .75 overlap", .groups = 'drop')
+  ) %>%
+  bind_rows(
+    svData_omim %>%
+      filter(MatchingSVTYPE_gnomad == TRUE & SVTYPE != "BND") %>%
+      group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+      summarise(count = n(), Dataset = "Gnomad_matchingType -r .75 overlap", .groups = 'drop')
+  ) %>%
+  bind_rows(
+    svData_omim %>%
+      group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+      summarise(count = n(), Dataset = "All SVs", .groups = 'drop')
+  ) %>%
+  mutate(fraction = count / total_sv_count$total_count * 100)
+
+humanTable <- human_sv_summary_fractions %>%
+  group_by(LiftedToHg19, Dataset) %>%
+  summarise(count = sum(count)) %>%
+  ungroup() 
+humanTable
+
+ggplot(human_sv_summary_fractions, aes(x = Dataset, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by Dataset",
+       x = "Dataset",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+human_sv_summary_fractions_lifted <- svData_omim %>%
+  filter(Pathogenic == Pathogenic & MatchingSVTYPE == TRUE & SVTYPE != "BND" & LiftedToHg19 == TRUE) %>%
+  group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+  summarise(count = n(), Dataset = "Pathogenic_matchingType Clinvar Pathogenic", .groups = 'drop') %>%
+  bind_rows(
+    svData_omim %>%
+      filter(MatchingSVTYPE_clinvarCommon == TRUE & SVTYPE != "BND" & LiftedToHg19 == TRUE) %>%
+      group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+      summarise(count = n(), Dataset = "ClinvarCommon_matchingType -r .75 overlap", .groups = 'drop')
+  ) %>%
+  bind_rows(
+    svData_omim %>%
+      filter(MatchingSVTYPE_gnomad == TRUE & SVTYPE != "BND" & LiftedToHg19 == TRUE) %>%
+      group_by(OverlapsExon, IMPACT, WholeGeneOverlap, LiftedToHg19) %>%
+      summarise(count = n(), Dataset = "Gnomad_matchingType -r .75 overlap", .groups = 'drop')
+  ) %>%
+  mutate(fraction = count / total_sv_count$total_count * 100)
+
+
+ggplot(human_sv_summary_fractions_lifted, aes(x = Dataset, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by Dataset",
+       x = "Dataset",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+#try this way to make plots? maybe faster
+create_stacked_bar_plot <- function(data, x_var, title) {
+  ggplot(data, aes_string(x = x_var, y = "fraction", fill = "Dataset")) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = colorblind) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +  
+    labs(title = str_wrap(title, width = 40),
+         x = str_wrap(x_var, width = 10), 
+         y = "Fraction of Total SVs (%)") +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+
+
+#OverlapsExon, WholeGeneOverlap, and IMPACT
+bar_plot_OG <- create_stacked_bar_plot(total_sv_summary_fractions, "OverlapsExon", "Fraction of Exon Overlaps for SV Subsets")
+bar_plot_WG <- create_stacked_bar_plot(total_sv_summary_fractions, "WholeGeneOverlap", "Fraction of Whole Gene Overlaps for SV Subsets")
+bar_plot_IMPACT <- create_stacked_bar_plot(total_sv_summary_fractions, "IMPACT", "Fraction by Impact for SV Subsets")
+bar_plot_Lifted <- create_stacked_bar_plot(total_sv_summary_fractions, "LiftedToHg19", "Fraction by if SV lifted for SV Subsets")
+bar_plot_Lifted_human <- create_stacked_bar_plot(human_sv_summary_fractions, "LiftedToHg19", "Fraction by if SV lifted for SV Subsets")
+
+
+print(bar_plot_OG)
+print(bar_plot_WG)
+print(bar_plot_IMPACT)
+print(bar_plot_Lifted)
+print(bar_plot_Lifted_human)
+```
+
+```{r}
+library(patchwork)
+#splitting the plots
+create_stacked_bar_plot_split <- function(data, x_var, title, filter_range = NULL) {
+  if (!is.null(filter_range)) {
+    data_filtered <- data[data$fraction >= filter_range[1] & data$fraction <= filter_range[2], ]
+  } else {
+    data_filtered <- data
+  }
+  
+  ggplot(data_filtered, aes_string(x = x_var, y = "fraction", fill = "Dataset")) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = colorblind) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +  
+    labs(title = str_wrap(title, width = 40),
+         x = str_wrap(x_var, width = 10), 
+         y = "Fraction of Total SVs (%)") +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+
+# Example plots for different subsets
+bar_plot_Lifted_0to10 <- create_stacked_bar_plot_split(human_sv_summary_fractions, "LiftedToHg19", "0-1% Range", filter_range = c(0, 1))
+bar_plot_Lifted_10to100 <- create_stacked_bar_plot_split(human_sv_summary_fractions, "LiftedToHg19", "1-100% Range", filter_range = c(1, 100))
+bar_plot_OG <- create_stacked_bar_plot_split(total_sv_summary_fractions, "OverlapsExon", "Fraction of Exon Overlaps for SV Subsets")
+bar_plot_WG <- create_stacked_bar_plot_split(total_sv_summary_fractions, "WholeGeneOverlap", "Fraction of Whole Gene Overlaps for SV Subsets")
+bar_plot_IMPACT <- create_stacked_bar_plot_split(total_sv_summary_fractions, "IMPACT", "Fraction by Impact for SV Subsets")
+(bar_plot_Lifted_10to100 / bar_plot_Lifted_0to10) + plot_layout(ncol = 1)
+
+```
+Human SV data sets
+```{r}
+#unique SV_ID by pathogenic vs. not pathogenic
+CLNSIG_counts <- with(hg19clinicalSVoverlap, table(Pathogenic))
+MatchingSVTYPE_counts <- with(hg19clinicalSVoverlap, table(MatchingSVTYPE))
+
+# Convert counts to data frames
+CLNSIG_counts_df <- data.frame(Category = "Pathogenic", Pathogenic = names(CLNSIG_counts), Count = as.numeric(CLNSIG_counts))
+MatchingSVTYPE_counts_df <- data.frame(Category = "MatchingSVTYPE", Pathogenic = names(MatchingSVTYPE_counts), Count = as.numeric(MatchingSVTYPE_counts))
+
+# Combine
+CLINSIG_MathingType <- rbind(CLNSIG_counts_df, MatchingSVTYPE_counts_df)
+
+#bar plot
+ggplot(data = data.frame(Pathogenic = names(CLNSIG_counts), Count = as.numeric(CLNSIG_counts)),
+       aes(x = Pathogenic, y = Count, fill = Pathogenic)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Pathogenicity", y = "Count of unique SV_ID", title = "unique SV_ID counts for Overlapping SVs with Clinically signifigant hg19 SVs ") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = colorblind[1:2])
+
+
+ggplot(CLINSIG_MathingType, aes(x = Pathogenic, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Category", y = "Count", title = "Counts for Pathogenicity and Matching SVTYPE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = colorblind[1:2])
+
+```
+
+Hg19 clinical overlaps without filtering or merging(so these are in hg19 coords- i can make this in mmul10 coords instead)
+```{r}
+
+#hg19clinicalSVoverlap no NAs, but not fitered for Path of matching type
+hg19clinicalSVoverlap <- hg19clinicalSVoverlap %>%
+  filter(!is.na(hg19chrom) & !is.na(hg19clinSTART) & !is.na(hg19clinEND))
+
+# 1 mill bp
+bin_size <- 1000000  
+
+# SVs with binning
+feature_data_binned <- hg19clinicalSVoverlap %>%
+  mutate(bin = floor(hg19clinSTART / bin_size)) %>%
+  group_by(hg19chrom, bin) %>%
+  summarise(mean_value = mean(INTERSECT_LENGTH, na.rm = TRUE)) %>%
+  ungroup()
+
+#chromosome order for plotting
+chromosome_order <- c(
+  "1", "2", "3", "4", "5", "6", "7", 
+  "8", "9", "10", "11", "12", "13", "14", 
+  "15", "16", "17", "18", "19", "20", "21", 
+  "22", "X", "Y", "MT"
+)
+
+#hg19chrom to factor so it can be ordered
+feature_data_binned$hg19chrom <- factor(feature_data_binned$hg19chrom, levels = chromosome_order)
+
+#Heatmap colors - maybe change to color??
+nColor <- 12
+color_palette <- colorRampPalette(c("white", "red"))(nColor)
+
+#white (cold) to red (hot) color theme
+ggplot(feature_data_binned, aes(x = bin * bin_size, y = hg19chrom, fill = mean_value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = color_palette, name = "Mean Value",
+                       limits = range(feature_data_binned$mean_value),
+                       breaks = seq(min(feature_data_binned$mean_value), max(feature_data_binned$mean_value), length.out = 5)) +
+  theme_minimal() +
+  labs(title = "SV overlaps with Clinically Significant SVs from hg19 per 1 million bp Bin",
+       x = "Position (bp)", y = "HG19 Chromosome")
+
+
+```
+
+```{r}
+
+# subset Pathogenic_matchingType_OE
+Pathogenic_matchingType_OE <- svData_omim %>%
+  filter(Pathogenic == Pathogenic, MatchingSVTYPE == TRUE, SVTYPE != "BND") %>%
+  select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR)
+
+bin_size <- 1000000
+
+CLinPathMatchType_binned <- Pathogenic_matchingType_OE %>%
+  mutate(bin = floor(POS / bin_size)) %>%
+  group_by(CHROM, bin) %>%
+  summarise(mean_value = mean(SVLEN, na.rm = TRUE)) %>%
+  ungroup()
+
+# Define chromosome order for plotting
+chromosome_order <- c(
+  "1", "2", "3", "4", "5", "6", "7", 
+  "8", "9", "10", "11", "12", "13", "14", 
+  "15", "16", "17", "18", "19", "20", "21", 
+  "22", "X", "Y", "MT"
+)
+
+# Convert hg19chrom to factor with custom levels (order)
+CLinPathMatchType_binned$CHROM <- factor(CLinPathMatchType_binned$CHROM, levels = chromosome_order)
+
+
+
+# Plot heatmap using ggplot2 with red (hot) to blue (cold) color theme
+ggplot(CLinPathMatchType_binned, aes(x = bin * bin_size, y = CHROM, fill = mean_value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = color_palette, name = "Mean Value",
+                       limits = range(CLinPathMatchType_binned$mean_value),
+                       breaks = seq(min(CLinPathMatchType_binned$mean_value), max(CLinPathMatchType_binned$mean_value), length.out = 5)) +
+  theme_minimal() +
+  labs(title = "Pathogenic SVs with Matching Type and Overlaps Exon with 1 million bp Bins",
+       x = "Position (bp)", y = "Chromosome MMul10")
+
+```
+CLinvar matching type- add common without matching type filter. 
+
+```{r}
+
+ClinvarCommon_matchingType_OE <- svData_omim %>%
+    filter(MatchingSVTYPE_clinvarCommon == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR)
+
+#set a bin size for the plot
+bin_size <- 1000
+
+clinvarCommon_binned <- ClinvarCommon_matchingType_OE %>%
+  mutate(bin = floor(POS / bin_size)) %>%
+  group_by(CHROM, bin) %>%
+  summarise(mean_value = mean(SVLEN, na.rm = TRUE)) %>%
+  ungroup()
+
+# Define chromosome order for plotting
+chromosome_order <- c(
+  "1", "2", "3", "4", "5", "6", "7", 
+  "8", "9", "10", "11", "12", "13", "14", 
+  "15", "16", "17", "18", "19", "20", "21", 
+  "22", "X", "Y", "MT"
+)
+
+# Convert hg19chrom to factor with custom levels (order)
+clinvarCommon_binned$CHROM <- factor(clinvarCommon_binned$CHROM, levels = chromosome_order)
+
+# Plot heatmap using ggplot2 with red (hot) to blue (cold) color theme
+ggplot(clinvarCommon_binned, aes(x = bin * bin_size, y = CHROM, fill = mean_value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = color_palette, name = "Mean Value",
+                       limits = range(clinvarCommon_binned$mean_value),
+                       breaks = seq(min(clinvarCommon_binned$mean_value), max(clinvarCommon_binned$mean_value), length.out = 5)) +
+  theme_minimal() +
+  labs(title = "Clinvar Common Matching Type and Overlaps Exon with 1000 bp Bins",
+       x = "Position (bp)", y = "Chromosome")
+```
+Gnomad- matching type- add not filtered
+```{r}
+
+Gnomad_matchingType_OE <- svData_omim %>%
+    filter(MatchingSVTYPE_gnomad == TRUE, OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR)
+
+bin_size <- 1000000
+
+gnomadMatching_binned <- Gnomad_matchingType_OE %>%
+  mutate(bin = floor(POS / bin_size)) %>%
+  group_by(CHROM, bin) %>%
+  summarise(mean_value = mean(SVLEN, na.rm = TRUE)) %>%
+  ungroup()
+
+# Define chromosome order for plotting
+chromosome_order <- c(
+  "1", "2", "3", "4", "5", "6", "7", 
+  "8", "9", "10", "11", "12", "13", "14", 
+  "15", "16", "17", "18", "19", "20", "21", 
+  "22", "X", "Y", "MT"
+)
+
+# Convert hg19chrom to factor with custom levels (order)
+gnomadMatching_binned$CHROM <- factor(gnomadMatching_binned$CHROM, levels = chromosome_order)
+
+
+
+# Plot heatmap using ggplot2 with red (hot) to blue (cold) color theme
+ggplot(gnomadMatching_binned, aes(x = bin * bin_size, y = CHROM, fill = mean_value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = color_palette, name = "Mean Value",
+                       limits = range(gnomadMatching_binned$mean_value),
+                       breaks = seq(min(gnomadMatching_binned$mean_value), max(gnomadMatching_binned$mean_value), length.out = 5)) +
+  theme_minimal() +
+  labs(title = "gnomad SVs Matching Type and Overlaps Exon with 1 million bp Bins",
+       x = "Position (bp)", y = "Chromosome")
+```
+
+
+do gene density or SV density side by side 
+```{r}
+
+Overlaps_Exon = svData_omim %>%
+    filter(OverlapsExon == TRUE, SVTYPE != "BND") %>%
+    select(OG, CHROM, POS, END, AF, SV_ID, SVTYPE, SVLEN, IMPACT, VE, OverlapsExon, ANN, WholeGeneOverlap, HOM.VAR)
+
+# Define chromosome order for plotting
+chromosome_order_mul10 <- c(
+  "1", "2", "3", "4", "5", "6", "7", 
+  "8", "9", "10", "11", "12", "13", "14", 
+  "15", "16", "17", "18", "19", "20", "X", "Y", "MT"
+)
+
+#make a df to plot
+OverlapsExon_binned <- Overlaps_Exon %>%
+  mutate(bin = floor(POS / bin_size)) %>%
+  group_by(CHROM, bin) %>%
+  summarise(mean_value = mean(SVLEN, na.rm = TRUE)) %>%
+  ungroup()
+
+
+OverlapsExon_binned$CHROM <- factor(OverlapsExon_binned$CHROM, levels = chromosome_order_mul10)
+
+
+
+# Plot heatmap using ggplot2 with red (hot) to blue (cold) color theme
+ggplot(OverlapsExon_binned, aes(x = bin * bin_size, y = CHROM, fill = mean_value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = color_palette, name = "Mean Value",
+                       limits = range(OverlapsExon_binned$mean_value),
+                       breaks = seq(min(OverlapsExon_binned$mean_value), max(OverlapsExon_binned$mean_value), length.out = 5)) +
+  theme_minimal() +
+  labs(title = "SVs that Overlap Exons with 1 million bp Bins",
+       x = "Position (bp)", y = "Chromosome")
+
+
+```
+
+
+```{r}
+
+# Binning
+# Binning functions
+bin_AF <- function(AF) {
+  case_when(
+    AF < 0.01 ~ "singletons",
+    AF >= 0.01 & AF < 0.05 ~ "low frequency",
+    AF >= 0.05 & AF < 0.25 ~ "medium frequency",
+    AF >= 0.25 ~ "common"
+  )
+}
+
+bin_SVLEN <- function(SVLEN) {
+  case_when(
+    SVLEN <= 50 ~ "0-50",
+    SVLEN > 50 & SVLEN <= 100 ~ "50-100",
+    SVLEN > 100 & SVLEN <= 300 ~ "100-300",
+    SVLEN > 300 & SVLEN <= 350 ~ "300-350 (ALU)",
+    SVLEN > 350 & SVLEN <= 500 ~ "350-500",
+    SVLEN > 500 & SVLEN <= 1000 ~ "500-1000",
+    SVLEN > 1000 & SVLEN <= 2000 ~ "1000-2000",
+    SVLEN > 2000 & SVLEN <= 10000 ~ "2000-10000",
+    SVLEN > 10000 ~ "greater than 10k"
+  )
+}
+
+```
+
+lifted_fraction <- svData_omim %>%
+  group_by(SVTYPE, LiftedToHg19, bin_SVLEN, bin_AF, SVLEN) %>%
+  summarise(count = n()) %>%
+  group_by(SVTYPE, bin_SVLEN, bin_AF, SVLEN) %>%
+  mutate(fraction = count / sum(count)) %>%
+  filter(!is.na(LiftedToHg19)) 
+
+```{r}
+
+svData_omim <- svData_omim %>%
+  mutate(bin_AF = sapply(AF, bin_AF),
+         bin_SVLEN = sapply(SVLEN, bin_SVLEN))
+
+```
+
+```{r}
+
+#Calculate fractions for each category
+lifted_fraction <- svData_omim %>%
+  group_by(LiftedToHg19) %>%
+  summarise(unique_sv_count = n_distinct(SV_ID)) %>%
+  group_by(SVTYPE, bin_SVLEN, bin_AF, LiftedToHg19) %>%
+  mutate(fraction = unique_sv_count / sum(unique_sv_count)) %>%
+  ungroup()
+
+
+overall_fraction <- svData_omim %>%
+  group_by(SVTYPE, LiftedToHg19) %>%
+  summarise(unique_sv_count = n_distinct(SV_ID)) %>%
+  ungroup() %>%
+  mutate(fraction = unique_sv_count / sum(unique_sv_count)) %>%
+  mutate(bin_SVLEN = "Overall")
+
+
+combined_fraction <- bind_rows(lifted_fraction, overall_fraction)
+
+
+```
+
+```{r}
+
+ggplot(combined_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ bin_AF, scales = "free_x") 
+
+ggplot(lifted_fraction, aes(x = bin_AF, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ SVTYPE, scales = "free_x") 
+
+```
+
+
+What fraction of varaints lifted and how do they differ by SVTYPE
+```{r}
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ bin_SVLEN, scales = "free") 
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction, fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +  
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +  # Custom colors and labels
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") + 
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(lifted_fraction, aes(x = SVTYPE, y = fraction , fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~ bin_SVLEN, scales = "free")
+
+ggplot(combined_fraction, aes(x = SVTYPE, y = fraction , fill = factor(LiftedToHg19))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colorblind, labels = c("FALSE" = "Not Lifted", "TRUE" = "Lifted")) +
+  labs(title = "Fraction of SVs Lifted to hg19 by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total SVs (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ bin_SVLEN, scales = "free")
+
+
+```
+
+
+
+```{r}
+
+#set up subsets identical to excel output
+gene_exon_sv_summary <- bind_rows(
+  svData_omim %>% filter(OverlapsExon == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "OverlapsExon", .groups = 'drop'),
+    svData_omim %>% filter(WholeGeneOverlap == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Overlaps whole Gene", .groups = 'drop'),
+  svData_omim %>% filter(OG == TRUE, SVTYPE != "BND") %>% group_by(OverlapsExon, IMPACT, WholeGeneOverlap, SVTYPE ) %>% summarise(count = n(), Dataset = "Overlaps Gene Boundary", .groups = 'drop')
+)
+
+ggplot(gene_exon_sv_summary, aes(x = SVTYPE, y = count, fill = Dataset)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colorblind) +
+  labs(title = str_wrap("Counts by SVTYPE Across Different Subsets", width = 40),
+       x = str_wrap("SVTYPE", width = 10), 
+       y = "Count") + 
+  theme(
+    legend.position = "right",
+    plot.margin = margin(50, 20, 20, 50) 
+  )
+
+
+```
+Load the excel as table and make summaries based on it 
+```{r}
+
+file_path <- "/Users/mulch/Documents/R_working_directory/SV_filtering/PacBioMarquee.xlsx"
+sheets <- readxl::excel_sheets(file_path)
+data_list <- lapply(sheets, function(sheet) readxl::read_excel(file_path, sheet = sheet))
+names(data_list) <- sheets
+
+lapply(data_list, colnames)
+
+```
+
+```{r}
+
+check_columns <- function(df_list) {
+  lapply(df_list, function(df) colnames(df))
+}
+
+column_names_list <- check_columns(data_list)
+
+print(column_names_list)
+
+#summarize the sheet
+summarize_sheet <- function(df) {
+  # Clean column names by removing leading/trailing whitespace and converting to consistent case
+  colnames(df) <- tolower(trimws(colnames(df)))
+  
+  
+  required_columns <- c("sv id", "sv type", "overlaps full gene?", "overlaps exon?", 
+                        "clinvar (near-identical)", "clinvar (same gene)", "lifted to human?")
+  
+  # Check if columns exist
+  missing_columns <- setdiff(required_columns, colnames(df))
+  if (length(missing_columns) > 0) {
+    message(paste("Skipping data frame due to missing columns:", paste(missing_columns, collapse = ", ")))
+    return(NULL)
+  }
+  
+  # Summarize the contents 
+  total_unique_sv_ids <- n_distinct(df$`sv id`)
+  sv_type_counts <- df %>% count(`sv type`, name = "count")
+  full_genes_overlapped <- sum(df$`overlaps full gene?` == "yes", na.rm = TRUE)
+  overlaps_exons <- sum(df$`overlaps exon?` == "yes", na.rm = TRUE)
+  clinvar_near_identical <- sum(!is.na(df$`clinvar (near-identical)`))
+  clinvar_same_gene <- sum(!is.na(df$`clinvar (same gene)`))
+  lifted_to_human <- sum(df$`lifted to human?` == "yes", na.rm = TRUE)
+  
+  summary <- list(
+    total_unique_sv_ids = total_unique_sv_ids,
+    sv_type_counts = sv_type_counts,
+    full_genes_overlapped = full_genes_overlapped,
+    overlaps_exons = overlaps_exons,
+    clinvar_near_identical = clinvar_near_identical,
+    clinvar_same_gene = clinvar_same_gene,
+    lifted_to_human = lifted_to_human
+  )
+  
+  return(summary)
+}
+
+summary_list <- lapply(data_list, summarize_sheet)
+
+summary_list <- summary_list[!sapply(summary_list, is.null)]
+
+
+```
+
+```{r}
+
+
+# Function to check and print column names of each data frame in the list
+check_columns <- function(df_list) {
+  lapply(df_list, function(df) colnames(df))
+}
+
+# Function to summarize the sheet
+summarize_sheet <- function(df) {
+  # Clean column names by removing leading/trailing whitespace and converting to consistent case
+  colnames(df) <- tolower(trimws(colnames(df)))
+  
+  # Required columns (in lowercase)
+  required_columns <- c("sv id", "sv type", "overlaps full gene?", "overlaps exon?", 
+                        "clinvar (near-identical)", "clinvar (same gene)", "lifted to human?")
+  
+  # Check if required columns exist
+  missing_columns <- setdiff(required_columns, colnames(df))
+  if (length(missing_columns) > 0) {
+    message(paste("Skipping data frame due to missing columns:", paste(missing_columns, collapse = ", ")))
+    return(NULL)
+  }
+  
+ 
+  total_unique_sv_ids <- n_distinct(df$`sv id`)
+  sv_type_counts <- df %>% count(`sv type`, name = "count")
+  full_genes_overlapped <- sum(df$`overlaps full gene?` == "yes", na.rm = TRUE)
+  overlaps_exons <- sum(df$`overlaps exon?` == "yes", na.rm = TRUE)
+  clinvar_near_identical <- sum(!is.na(df$`clinvar (near-identical)`) & df$`clinvar (near-identical)` != "")
+  clinvar_same_gene <- sum(!is.na(df$`clinvar (same gene)`) & df$`clinvar (same gene)` != "")
+  lifted_to_human <- sum(df$`lifted to human?` == "yes", na.rm = TRUE)
+  
+  # Count non-blank rows for each specified category
+  non_blank_counts <- df %>%
+    summarise(
+      sv_id_count = sum(!is.na(`sv id`) & `sv id` != ""),
+      sv_type_count = sum(!is.na(`sv type`) & `sv type` != ""),
+      full_genes_overlapped_count = sum(!is.na(`overlaps full gene?`) & `overlaps full gene?` != ""),
+      overlaps_exons_count = sum(!is.na(`overlaps exon?`) & `overlaps exon?` != ""),
+      clinvar_near_identical_count = sum(!is.na(`clinvar (near-identical)`) & `clinvar (near-identical)` != ""),
+      clinvar_same_gene_count = sum(!is.na(`clinvar (same gene)`) & `clinvar (same gene)` != ""),
+      lifted_to_human_count = sum(!is.na(`lifted to human?`) & `lifted to human?` != "")
+    )
+  
+  summary <- list(
+    total_unique_sv_ids = total_unique_sv_ids,
+    sv_type_counts = sv_type_counts,
+    full_genes_overlapped = full_genes_overlapped,
+    overlaps_exons = overlaps_exons,
+    clinvar_near_identical = clinvar_near_identical,
+    clinvar_same_gene = clinvar_same_gene,
+    lifted_to_human = lifted_to_human,
+    non_blank_counts = non_blank_counts
+  )
+  
+  return(summary)
+}
+
+# Apply summarize_sheet function to each data frame in data_list
+summary_list <- lapply(data_list, summarize_sheet)
+
+# Filter out NULL results from the summary list
+summary_list <- summary_list[!sapply(summary_list, is.null)]
+```
+
+
+```{r}
+
+# Function to create a summary paragraph
+create_summary_paragraph <- function(summary) {
+  sv_type_counts_str <- paste(paste(summary$sv_type_counts$`sv type`, summary$sv_type_counts$count, sep = ": "), collapse = ", ")
+  
+  paragraph <- paste(
+    "The sheet contains", summary$total_unique_sv_ids, "unique SV IDs. ",
+    "There are", sv_type_counts_str, "of each SV Type. ",
+    summary$full_genes_overlapped, "full genes are overlapped. ",
+    summary$overlaps_exons, "SVs overlap exons. ",
+    summary$clinvar_near_identical, "SVs are ClinVar Near Identical. ",
+    summary$clinvar_same_gene, "SVs are ClinVar Same Gene. ",
+    summary$lifted_to_human, "SVs were lifted to Human. ",
+    "Counts of non-blank rows per category: ",
+    "SV IDs:", summary$non_blank_counts$sv_id_count, ", ",
+    "SV Types:", summary$non_blank_counts$sv_type_count, ", ",
+    "Full Genes Overlapped:", summary$non_blank_counts$full_genes_overlapped_count, ", ",
+    "Exons Overlapped:", summary$non_blank_counts$overlaps_exons_count, ", ",
+    "ClinVar Near-Identical:", summary$non_blank_counts$clinvar_near_identical_count, ", ",
+    "ClinVar Same Gene:", summary$non_blank_counts$clinvar_same_gene_count, ", ",
+    "Lifted to Human:", summary$non_blank_counts$lifted_to_human_count, "."
+  )
+  
+  return(paragraph)
+}
+
+# Create summary paragraphs
+summary_paragraphs <- lapply(summary_list, create_summary_paragraph)
+names(summary_paragraphs) <- names(summary_list)
+
+# Print summary paragraphs and tables
+for (sheet_name in names(summary_paragraphs)) {
+  cat("Summary for sheet", sheet_name, ":\n")
+  cat(summary_paragraphs[[sheet_name]], "\n\n")
+  print(summary_list[[sheet_name]])
+  cat("\n\n")
+}
+
+
+```
+
+```{r}
+
+```
+Show in New Window
+Warning: number of items to replace is not a multiple of replacement lengthWarning: number of items to replace is not a multiple of replacement lengthWarning: number of items to replace is not a multiple of replacement length
+Show in New Window
+Error in file(file, "rt") : cannot open the connection
+Show in New Window
+
+
+
+Show in New Window
+`summarise()` has grouped output by 'LiftedToHg19'. You can override using the `.groups` argument.
+R Console
+A tibble:8 × 3
+LiftedToHg19
+<lgl>
+Dataset
+<chr>
+FALSE	All SVs	
+FALSE	ClinvarCommon_matchingType -r .75 overlap	
+FALSE	Gnomad_matchingType -r .75 overlap	
+FALSE	Pathogenic_matchingType Clinvar Pathogenic	
+TRUE	All SVs	
+TRUE	ClinvarCommon_matchingType -r .75 overlap	
+TRUE	Gnomad_matchingType -r .75 overlap	
+TRUE	Pathogenic_matchingType Clinvar Pathogenic	
+8 rows | 1-2 of 3 columns
+tbl_df
+8 x 3
+
+
+A tibble:8 × 3
+LiftedToHg19
+<lgl>
+Dataset
+<chr>
+count
+<int>
+FALSE	All SVs	170374	
+FALSE	ClinvarCommon_matchingType -r .75 overlap	21	
+FALSE	Gnomad_matchingType -r .75 overlap	23	
+FALSE	Pathogenic_matchingType Clinvar Pathogenic	2048	
+TRUE	All SVs	332010	
+TRUE	ClinvarCommon_matchingType -r .75 overlap	57	
+TRUE	Gnomad_matchingType -r .75 overlap	153	
+TRUE	Pathogenic_matchingType Clinvar Pathogenic	66530	
+8 rows
+Show in New Window
+
+
+
+
+
+
+
+
+
+Show in New Window
+
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+R Console
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+Show in New Window
+
+Show in New Window
+
+
+
+
+
+
+Show in New Window
+
+
+
+Show in New Window
+
+`summarise()` has grouped output by 'hg19chrom'. You can override using the `.groups` argument.
+R Console
+`summarise()` has grouped output by 'hg19chrom'. You can override using the `.groups` argument.
+Show in New Window
+
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+R Console
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+Show in New Window
+
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+R Console
+
+Show in New Window
+
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+R Console
+`summarise()` has grouped output by 'CHROM'. You can override using the `.groups` argument.
+Show in New Window
+
+Show in New Window
+
+Show in New Window
+Error in `geom_bar()`:
+! Problem while computing aesthetics.
+ℹ Error occurred in the 1st layer.
+Caused by error in `factor()`:
+! object 'LiftedToHg19' not found
+Backtrace:
+  1. base (local) `<fn>`(x)
+ 17. base::factor(LiftedToHg19)
+R Console
+
+Error in `geom_bar()`:
+! Problem while computing aesthetics.
+ℹ Error occurred in the 1st layer.
+Caused by error in `factor()`:
+! object 'LiftedToHg19' not found
+Backtrace:
+  1. base (local) `<fn>`(x)
+ 17. base::factor(LiftedToHg19)
+Error in geom_bar(stat = "identity", position = "stack") : 
+ℹ Error occurred in the 1st layer.
+Caused by error in `factor()`:
+! object 'LiftedToHg19' not found
+Show in New Window
+$`High-Impact (Rare)`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`High-Impact (Not Rare)`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`Overlaps Full Gene`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`SVLEN >10K (Exonic)`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`AF >0.98`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`ClinVar (Identical)`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`ClinVar (Same Gene, Exonic)`
+ [1] "SV Type"                            "Chromosome"                        
+ [3] "Position"                           "SV Length"                         
+ [5] "AF"                                 "Protein Coding Impact"             
+ [7] "Overlapping Genes With High-Impact" "Variant Effect"                    
+ [9] "Full Genes Overlapped"              "Overlapping Exons"                 
+[11] "OMIM Phenotype(s)"                  "ClinVar (Near-Identical)"          
+[13] "ClinVar (Same Gene)"                "SV ID"                             
+[15] "END"                                "Reference Allele"                  
+[17] "Alt Allele"                         "# Called"                          
+[19] "# Het"                              "# HomRef"                          
+[21] "# HomVar"                           "Mobile Element"                    
+[23] "Overlapping Gene(s)"                "ExcHet"                            
+[25] "FILTER"                             "Overlaps Full Gene?"               
+[27] "Overlaps CDS?"                      "Overlapping CDS"                   
+[29] "Overlaps Exon?"                     "Lifted To Human?"                  
+[31] "CLNSIG"                             "OMIM ID"                           
+[33] "Interpretation"                     "RegionName"                        
+
+$`LOC Gene Translation`
+[1] "GeneId"      "Name"        "Description" "Aliases"    
+
+Skipping data frame due to missing columns: sv id, sv type, overlaps full gene?, overlaps exon?, clinvar (near-identical), clinvar (same gene), lifted to human?
+Show in New Window
+Skipping data frame due to missing columns: sv id, sv type, overlaps full gene?, overlaps exon?, clinvar (near-identical), clinvar (same gene), lifted to human?
+Summary for sheet High-Impact (Rare) :
+The sheet contains 955 unique SV IDs.  There are DEL: 535, DUP: 265, INS: 137, INV: 18 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  31 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 955 ,  SV Types: 955 ,  Full Genes Overlapped: 955 ,  Exons Overlapped: 955 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 31 ,  Lifted to Human: 955 . 
+
+$total_unique_sv_ids
+[1] 955
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 31
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet High-Impact (Not Rare) :
+The sheet contains 769 unique SV IDs.  There are DEL: 433, DUP: 156, INS: 175, INV: 5 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  20 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 769 ,  SV Types: 769 ,  Full Genes Overlapped: 769 ,  Exons Overlapped: 769 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 20 ,  Lifted to Human: 769 . 
+
+$total_unique_sv_ids
+[1] 769
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 20
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet Overlaps Full Gene :
+The sheet contains 255 unique SV IDs.  There are DEL: 118, DUP: 118, INV: 19 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  4 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 255 ,  SV Types: 255 ,  Full Genes Overlapped: 255 ,  Exons Overlapped: 255 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 4 ,  Lifted to Human: 255 . 
+
+$total_unique_sv_ids
+[1] 255
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 4
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet SVLEN >10K (Exonic) :
+The sheet contains 211 unique SV IDs.  There are DUP: 180, INS: 2, INV: 29 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  1 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 211 ,  SV Types: 211 ,  Full Genes Overlapped: 211 ,  Exons Overlapped: 211 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 1 ,  Lifted to Human: 211 . 
+
+$total_unique_sv_ids
+[1] 211
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 1
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet AF >0.98 :
+The sheet contains 2377 unique SV IDs.  There are DEL: 1021, DUP: 164, INS: 1191, INV: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  100 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 2377 ,  SV Types: 2377 ,  Full Genes Overlapped: 2377 ,  Exons Overlapped: 2377 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 100 ,  Lifted to Human: 2377 . 
+
+$total_unique_sv_ids
+[1] 2377
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 100
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet ClinVar (Identical) :
+The sheet contains 1 unique SV IDs.  There are DUP: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  0 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 1 ,  SV Types: 1 ,  Full Genes Overlapped: 1 ,  Exons Overlapped: 1 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 0 ,  Lifted to Human: 1 . 
+
+$total_unique_sv_ids
+[1] 1
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 0
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet ClinVar (Same Gene, Exonic) :
+The sheet contains 158 unique SV IDs.  There are DEL: 143, DUP: 15 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  158 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 158 ,  SV Types: 158 ,  Full Genes Overlapped: 158 ,  Exons Overlapped: 158 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 158 ,  Lifted to Human: 158 . 
+
+$total_unique_sv_ids
+[1] 158
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 158
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+R Console
+A tibble:4 × 2
+sv type
+<chr>
+count
+<int>
+DEL	535			
+DUP	265			
+INS	137			
+INV	18			
+4 rows
+tbl_df
+4 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+955	955	955	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:4 × 2
+sv type
+<chr>
+count
+<int>
+DEL	433			
+DUP	156			
+INS	175			
+INV	5			
+4 rows
+tbl_df
+4 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+769	769	769	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:3 × 2
+sv type
+<chr>
+count
+<int>
+DEL	118			
+DUP	118			
+INV	19			
+3 rows
+tbl_df
+3 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+255	255	255	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:3 × 2
+sv type
+<chr>
+count
+<int>
+DUP	180			
+INS	2			
+INV	29			
+3 rows
+tbl_df
+3 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+211	211	211	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:4 × 2
+sv type
+<chr>
+count
+<int>
+DEL	1021			
+DUP	164			
+INS	1191			
+INV	1			
+4 rows
+tbl_df
+4 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+2377	2377	2377	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:1 × 2
+sv type
+<chr>
+count
+<int>
+DUP	1			
+1 row
+tbl_df
+1 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+1	1	1	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+A tibble:2 × 2
+sv type
+<chr>
+count
+<int>
+DEL	143			
+DUP	15			
+2 rows
+tbl_df
+2 x 2
+A tibble:1 × 7
+sv_id_count
+<int>
+sv_type_count
+<int>
+full_genes_overlapped_count
+<int>
+158	158	158	
+1 row | 1-3 of 7 columns
+tbl_df
+1 x 7
+Skipping data frame due to missing columns: sv id, sv type, overlaps full gene?, overlaps exon?, clinvar (near-identical), clinvar (same gene), lifted to human?
+Summary for sheet High-Impact (Rare) :
+The sheet contains 955 unique SV IDs.  There are DEL: 535, DUP: 265, INS: 137, INV: 18 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  31 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 955 ,  SV Types: 955 ,  Full Genes Overlapped: 955 ,  Exons Overlapped: 955 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 31 ,  Lifted to Human: 955 . 
+
+$total_unique_sv_ids
+[1] 955
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 31
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet High-Impact (Not Rare) :
+The sheet contains 769 unique SV IDs.  There are DEL: 433, DUP: 156, INS: 175, INV: 5 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  20 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 769 ,  SV Types: 769 ,  Full Genes Overlapped: 769 ,  Exons Overlapped: 769 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 20 ,  Lifted to Human: 769 . 
+
+$total_unique_sv_ids
+[1] 769
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 20
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet Overlaps Full Gene :
+The sheet contains 255 unique SV IDs.  There are DEL: 118, DUP: 118, INV: 19 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  4 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 255 ,  SV Types: 255 ,  Full Genes Overlapped: 255 ,  Exons Overlapped: 255 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 4 ,  Lifted to Human: 255 . 
+
+$total_unique_sv_ids
+[1] 255
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 4
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet SVLEN >10K (Exonic) :
+The sheet contains 211 unique SV IDs.  There are DUP: 180, INS: 2, INV: 29 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  1 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 211 ,  SV Types: 211 ,  Full Genes Overlapped: 211 ,  Exons Overlapped: 211 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 1 ,  Lifted to Human: 211 . 
+
+$total_unique_sv_ids
+[1] 211
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 1
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet AF >0.98 :
+The sheet contains 2377 unique SV IDs.  There are DEL: 1021, DUP: 164, INS: 1191, INV: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  100 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 2377 ,  SV Types: 2377 ,  Full Genes Overlapped: 2377 ,  Exons Overlapped: 2377 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 100 ,  Lifted to Human: 2377 . 
+
+$total_unique_sv_ids
+[1] 2377
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 100
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet ClinVar (Identical) :
+The sheet contains 1 unique SV IDs.  There are DUP: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  0 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 1 ,  SV Types: 1 ,  Full Genes Overlapped: 1 ,  Exons Overlapped: 1 ,  ClinVar Near-Identical: 1 ,  ClinVar Same Gene: 0 ,  Lifted to Human: 1 . 
+
+$total_unique_sv_ids
+[1] 1
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 1
+
+$clinvar_same_gene
+[1] 0
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Summary for sheet ClinVar (Same Gene, Exonic) :
+The sheet contains 158 unique SV IDs.  There are DEL: 143, DUP: 15 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  158 SVs are ClinVar Same Gene.  0 SVs were lifted to Human.  Counts of non-blank rows per category:  SV IDs: 158 ,  SV Types: 158 ,  Full Genes Overlapped: 158 ,  Exons Overlapped: 158 ,  ClinVar Near-Identical: 0 ,  ClinVar Same Gene: 158 ,  Lifted to Human: 158 . 
+
+$total_unique_sv_ids
+[1] 158
+
+$sv_type_counts
+
+$full_genes_overlapped
+[1] 0
+
+$overlaps_exons
+[1] 0
+
+$clinvar_near_identical
+[1] 0
+
+$clinvar_same_gene
+[1] 158
+
+$lifted_to_human
+[1] 0
+
+$non_blank_counts
+
+
+
+Show in New Window
+Summary for sheet High-Impact (Rare) :
+The sheet contains 955 unique SV IDs.  There are DEL: 535, DUP: 265, INS: 137, INV: 18 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  31 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet High-Impact (Not Rare) :
+The sheet contains 769 unique SV IDs.  There are DEL: 433, DUP: 156, INS: 175, INV: 5 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  20 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet Overlaps Full Gene :
+The sheet contains 255 unique SV IDs.  There are DEL: 118, DUP: 118, INV: 19 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  4 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet SVLEN >10K (Exonic) :
+The sheet contains 211 unique SV IDs.  There are DUP: 180, INS: 2, INV: 29 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  1 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet AF >0.98 :
+The sheet contains 2377 unique SV IDs.  There are DEL: 1021, DUP: 164, INS: 1191, INV: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  100 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet ClinVar (Identical) :
+The sheet contains 1 unique SV IDs.  There are DUP: 1 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  1 SVs are ClinVar Near Identical.  0 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+
+Summary for sheet ClinVar (Same Gene, Exonic) :
+The sheet contains 158 unique SV IDs.  There are DEL: 143, DUP: 15 of each SV Type.  0 full genes are overlapped.  0 SVs overlap exons.  0 SVs are ClinVar Near Identical.  158 SVs are ClinVar Same Gene.  0 SVs were lifted to Human. 
+```{r}
+
+```
+

@@ -1,0 +1,52 @@
+---
+title: "Marquee Selection"
+author: "mulchc"
+date: "2024-02-27"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+downloaded table of Omim phenotype data overlapping with mGap 2.5 Variants from predicted Damaging Vriants list where non blank values were selected from Predicted damaging Variants table from URL https://mgap.ohsu.edu/mgap/mGAP/variantList.view?release=20597#  20,135 entries were loaded into Rstudio and merged with the SV data by Common gene symbols between SVs and Omim/phenotype data. 
+
+```{r}
+#Omim_data <- read.table('variantList_2024-02-27_14-20-08.tsv', sep = '\t', header = TRUE)
+Omim_data <- variantList_2024-02-27_14-20-08
+
+```
+
+Use svData and overlapping Exon data 
+  Load exon only gtf and merge with data frame
+```{r}
+
+Omim_svData <- join_by(Omim_data, svData, by x = overlappingGenes, OG)
+
+```
+
+add a col to the data frame based on If There is an exon overlap or not
+
+```{r}
+
+```
+
+Make a venn diagram for those that have Omim data overlaps and OG vs Exon
+```{r}
+
+```
+looking at those that overlap with Omim and Exons, What is the distribution of AF and SVTYPE 
+```{r}
+
+```
+

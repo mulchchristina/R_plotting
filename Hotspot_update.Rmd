@@ -1,0 +1,448 @@
+---
+title: "Hotspot Gene"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+---
+title: "MarqueeSelection"
+author: "mulchc"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+install.packages("rcartocolor")
+library(rcartocolor) 
+nColor <- 12 
+scales::show_col(carto_pal(nColor, "Safe")) 
+colorblind <- carto_pal(nColor, "Safe")
+
+
+```
+
+ 
+```{r}
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+```
+
+table of Omim phenotype data overlapping with mGap 2.5 Variants from predicted Damaging Vriants list where non blank values were selected from Predicted damaging Variants table from URL https://mgap.ohsu.edu/mgap/mGAP/variantList.view?release=20597#  20,135 entries were loaded into Rstudio and merged with the SV data by Common gene symbols between SVs and Omim/phenotype data. 
+
+```{r}
+
+Omim_data <- read.table('variantList_2024-02-27_14-20-08.tsv', sep = '\t', header = TRUE)
+
+```
+HotSpots identified by selecting highest SV density windows 
+```{r}
+
+# Read Hotspot_genes with header
+Hotspot_genes <- read.table('gene_overlap.txt', sep = '\t', header = TRUE, 
+                            col.names = c("hotspot_chrom", "hotspot_start", "hotspot_end", "HotSpotGene"))
+
+# Merge Hotspot_genes with svData
+#HotSpot_svData <- merge(Hotspot_genes, svData, by.x = "HotSpotGene", by.y = "OG", all.x = TRUE)
+
+Hotspot_genes <- read.table('gene_overlap.txt', sep = '\t', header = FALSE)
+colnames(Hotspot_genes) <- c("hotspot_chrom", "hotspot_start", "hotspot_end", "HotSpotGene")
+
+#  left join
+svData_hotSpotGenes <- merge(svData, Hotspot_genes, by.x = "OG", by.y = "HotSpotGene", all.x = TRUE)
+
+# Add OverlapsHotSpot column based on if data is there- cant use OG bc it was joined that way
+svData_hotSpotGenes$OverlapsHotSpot <- !is.na(svData_hotSpotGenes$hotspot_chrom)
+
+```
+
+Merge Omim data with hotspot and svData
+```{r}
+#  left join
+svData_hotSpotGenes_omim <- merge(svData_hotSpotGenes, Omim_data, by.x = "OG", by.y = "overlappingGenes", all.x = TRUE)
+
+# Add OverlapsOmim column based on if data is there- cant use OG bc it was joined that way
+svData_hotSpotGenes_omim$OverlapsOmim <- !is.na(svData_hotSpotGenes_omim$omim_phenotype)
+
+```
+
+Count the number of Features for each subset of interest:
+how Many Svs have hotspot and Omim data
+```{r}
+# Count unique SV IDs that have OMIM entries
+sv_with_omim_count <- svData_hotSpotGenes_omim %>%
+  filter(OverlapsOmim) %>%
+  summarise(unique_sv_omim = n_distinct(SV_ID))
+
+# Count unique SV IDs that overlap with hotspots
+sv_with_hotspot_count <- svData_hotSpotGenes_omim %>%
+  filter(OverlapsHotSpot) %>%
+  summarise(unique_sv_hotspot = n_distinct(SV_ID))
+
+# Display the counts
+print(sv_with_omim_count)
+print(sv_with_hotspot_count)
+
+
+```
+
+```{r}
+#SVs that overlaped with gene gtf margins
+Hotspot_genesGTF <- read.table('svData.intersect...txt', sep = '\t', header = FALSE)
+colnames(Hotspot_genesGTF) <- c("hotspot_chrom", "hotspot_start", "hotspot_end", "HotSpotGene", "Gene_chrom", "Gene_start", " Gene_end", "Gene", "GeneSymbol", "GeneID", "intersectLength")
+
+# Add in category for chr:start and add to summary 
+Hotspot_genesGTF <- 
+#  left join
+svData_hotSpotGenesGTF <- merge(svData, Hotspot_genesGTF, by.x = "OG", by.y = "HotSpotGene", all.x = TRUE)
+
+# Add OverlapsHotSpot column based on if data is there- cant use OG bc it was joined that way
+svData_hotSpotGenesGTF$OverlapsHotSpotGTF <- !is.na(svData_hotSpotGenesGTF$hotspot_chrom)
+
+
+
+```
+
+```{r}
+# Chromosomes with hotspots
+unique(svData_hotSpotGenesGTF$hotspot_chrom)
+#19 16 20  9 11 17 14  4  3  2
+
+#hotspot_chromosomes <- c(2, 3, 4, 9, 11, 14, 16, 17, 19, 20)
+hotspot_chromosomes <- factor(c(2, 3, 4, 9, 11, 14, 16, 17, 19, 20))
+summary_OG_hotspots_filtered <- svData_hotSpotGenesGTF %>%
+  group_by(hotspot_chrom, GeneSymbol) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  group_by(hotspot_chrom) %>%
+  mutate(fraction = count / sum(count)) %>%
+  filter(fraction >= 0.09) 
+
+
+summary_OG_hotspots_filtered$OG <- ifelse(summary_OG_hotspots_filtered$fraction < 0.09, "Other", as.character(summary_OG_hotspots_filtered$OG))
+
+
+summary_OG_hotspots <- svData_hotSpotGenesGTF %>%
+  group_by(hotspot_chrom, GeneSymbol) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  group_by(hotspot_chrom) %>%
+  mutate(fraction = count / sum(count))
+
+#printing the summaries
+summary_OG_hotspots
+summary_OG_hotspots2
+summary_OG_hotspots_filtered
+
+ggplot(summary_OG_hotspots_filtered, aes(x = hotspot_chrom, y = fraction, fill = GeneSymbol)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Fraction of Genes in Each Hotspot",
+       x = "Hotspot on Chromosome ",
+       y = "Fraction of Gene",
+       fill = "OG") +
+  theme_minimal() +
+    scale_x_discrete(breaks = hotspot_chromosomes,
+                   labels = hotspot_chromosomes) +
+    theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+
+ggplot(summary_OG_hotspots, aes(x = hotspot_chrom, y = fraction, fill = GeneSymbol)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Fraction of Genes in Each Hotspot",
+       x = "Hotspot on Chromosome ",
+       y = "Fraction of Gene",
+       fill = "Gene Symbol") +
+  theme_minimal() +
+  scale_x_discrete(breaks = hotspot_chromosomes,
+                   labels = hotspot_chromosomes) +
+    theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+```
+```{r}
+
+# Prepare the data
+summary_OG_hotspots <- svData_hotSpotGenesGTF %>%
+  group_by(hotspot_chrom, GeneSymbol) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(hotspot_chrom) %>%
+  mutate(fraction = count / sum(count)) %>%
+  filter(fraction >= 0.05)
+
+summary_OG_hotspots2 <- svData_hotSpotGenesGTF %>%
+  group_by(hotspot_chrom, GeneSymbol) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(hotspot_chrom) %>%
+  mutate(Count = count) 
+
+# Plot the data with separate plots for each chromosome without a legend
+ggplot(summary_OG_hotspots, aes(x = GeneSymbol, y = fraction, fill = GeneSymbol)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Fraction of  ensemble Genes in Each Hotspot Chromosome",
+       x = "Gene Symbol from GTF",
+       y = "Fraction of Gene",
+       fill = "Gene Symbol") +
+  theme_minimal() +
+  facet_wrap(~hotspot_chrom, scales = "free_x") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 2), 
+        legend.position = "none")  
+
+# Plot the data with separate plots for each chromosome without a legend
+ggplot(summary_OG_hotspots2, aes(x = GeneSymbol, y = Count, fill = GeneSymbol)) +
+  geom_bar(stat = "identity") +
+  labs(title = "ensemble Genes in Each Hotspot Chromosome",
+       x = "Gene Symbol from GTF",
+       y = "Count of Gene",
+       fill = "Gene Symbol") +
+  theme_minimal() +
+  facet_wrap(~hotspot_chrom, scales = "free_x") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 2), 
+        legend.position = "none")  
+
+
+```
+GTF overlap method
+```{r}
+library(ggplot2)
+
+# Create a bar plot
+ggplot(svData_hotSpotGenesGTF, aes(x = OverlapsHotSpotGTF, fill = OverlapsHotSpotGTF)) +
+  geom_bar() +
+  labs(x = "Overlaps Hotspot Genes", y = "SV Counts", fill = " For all SVs does it overlap Hotspot Genes") +
+  scale_fill_manual(values = c("blue", "darkolivegreen"), labels = c("Does not Overlap with Hot Spot", "Overlaps")) +
+  theme_minimal()
+
+```
+```{r}
+
+#add a hotspot id of chrom:start and plot by that, add a list of contents (gene symbols from each list to the table)
+
+# Count unique OGs for each hotspot_chrom and OverlapsHotSpotGTF category
+hotspot_og_counts <- Hotspot_genesGTF %>%
+  group_by(hotspot_chrom) %>%
+  summarise(count = n_distinct(GeneSymbol))
+
+hotspot_og_counts
+
+# Create the plot
+ggplot(hotspot_og_counts, aes(x = hotspot_chrom, y = count)) +
+  geom_bar(stat = "identity", fill = "black") +
+  labs(x = "Hotspot Chromosome", y = "Count of Unique Gene Symbols") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+
+```
+
+```{r}
+
+
+# Creating a unique identifier for each hotspot
+Hotspot_genesGTF <- Hotspot_genesGTF %>%
+  mutate(hotspot_id = paste(hotspot_chrom, hotspot_start, sep = ":"))
+
+# Counting unique genes and creating a list of genes for each hotspot
+hotspot_og_details <- Hotspot_genesGTF %>%
+  group_by(hotspot_id) %>%
+  summarise(
+    unique_genes_count = n_distinct(GeneSymbol),
+    gene_list = toString(unique(GeneSymbol))
+  )
+
+# Plotting the number of unique genes per hotspot
+ggplot(hotspot_og_details, aes(x = hotspot_id, y = unique_genes_count)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Unique Gene Counts per Hotspot", x = "Hotspot ID", y = "Count of Unique Genes")
+
+hotspot_og_details
+
+```
+
+```{r}
+#add to K's summary file of each hot spot and includecols for # of unique ensemble Gene Symbols, List of Unique Enselble Gene symbols, and harvest the info from biomaRt to start
+
+hotspots <- read.delim("~/Downloads/hotspots.txt")
+# Creating a unique identifier for each hotspot
+hotspots <- hotspots %>%
+  mutate(hotspot_id = paste(CHROM, START, sep = ":"))
+
+HotspotTable <- left_join(hotspot_og_details, hotspots, by = "hotspot_id")
+
+# Exporting the merged data to an Excel file
+write.xlsx(HotspotTable, file = "HotspotSummaryWithGeneLists.xlsx")
+
+```
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(tidyr)
+library(biomaRt)
+library(biomaRt)
+
+
+# Split the genes
+HotspotGeneDisc <- HotspotTable %>%
+  mutate(gene_list = strsplit(gene_list, ",\\s*")) %>%
+  unnest(gene_list)
+
+
+# Ensembl lookup for gene descriptions for Macaca mulatta
+ensembl <- useMart("ensembl", dataset = "mmulatta_gene_ensembl", host = "www.ensembl.org")
+
+# Filter out NA values from gene_list column
+gene_list_filtered <- na.omit(unique_genes)
+
+# Get unique gene symbols
+unique_genes <- unique(unlist(gene_list_filtered))
+
+# Retrieve gene information for Macaca mulatta
+genes_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "description"),
+                    filters = "external_gene_name",
+                    values = unique_genes,
+                    mart = ensembl)
+
+# View the result
+print(genes_info)
+
+# Merge gene information with HotspotGeneDisc
+HotspotGeneDisc_with_info <- merge(HotspotGeneDisc, genes_info, by.x = "gene_list", by.y = "external_gene_name", all.x = TRUE)
+
+# View the result
+print(HotspotGeneDisc_with_info)
+
+# Step 3: Merge descriptions back into the new table
+new_table_with_descriptions <- merge(HotspotGeneDisc, genes_info, by.x = "gene_list", by.y = "external_gene_name", all.x = TRUE)
+
+# Select only necessary columns in the final table
+hotspotGeneDisc_table <- new_table_with_descriptions %>%
+  select(hotspot_id, gene_list, description)
+
+# Write the final table to a new file
+write.table(hotspotGeneDisc_table, "HotspotGenesWithdescriptions.csv", sep = ",", row.names = FALSE)
+
+```
+
+```{r}
+
+# Writing the data frame to an Excel file
+write.xlsx(HotspotTable, file = "HotspotSummaryWithGeneListsDesc.xlsx", rowNames = FALSE)
+
+
+```
+
+----------------hotspots------------------------
+HotSpots identified by selecting highest SV density windows 
+```{r}
+
+# Read Hotspot_genes with header
+Hotspot_genes <- read.table('gene_overlap.txt', sep = '\t', header = TRUE, 
+                            col.names = c("hotspot_chrom", "hotspot_start", "hotspot_end", "HotSpotGene"))
+
+# Merge Hotspot_genes with svData
+#HotSpot_svData <- merge(Hotspot_genes, svData, by.x = "HotSpotGene", by.y = "OG", all.x = TRUE)
+
+Hotspot_genes <- read.table('gene_overlap.txt', sep = '\t', header = FALSE)
+colnames(Hotspot_genes) <- c("hotspot_chrom", "hotspot_start", "hotspot_end", "HotSpotGene")
+
+#  left join
+svData_hotSpotGenes <- merge(svData, Hotspot_genes, by.x = "OG", by.y = "HotSpotGene", all.x = TRUE)
+
+# Add OverlapsHotSpot column based on if data is there- cant use OG bc it was joined that way
+svData_hotSpotGenes$OverlapsHotSpot <- !is.na(svData_hotSpotGenes$hotspot_chrom)
+
+```
+```{r}
+library(writexl)
+
+svData_hotSpotGenes_omim <- svData_hotSpotGenes_omim %>%
+  arrange(hotspot_chrom, hotspot_start, hotspot_end) %>%
+  group_by(hotspot_chrom) %>%
+  mutate(
+  #make sure hotspots are actrually sperate by puting a distance min 1k in place
+  distance_to_prev = hotspot_start - lag(hotspot_end, default = first(hotspot_start) - 1001),
+    is_new_hotspot = if_else(distance_to_prev > 1000, 1, 0),
+  #add a hotspot id
+    hotspot_id = cumsum(is_new_hotspot)
+  ) %>%
+  ungroup()
+
+#summerize by hotspot id
+hotspot_summary <- svData_hotSpotGenes_omim %>%
+  group_by(hotspot_chrom, hotspot_id) %>%
+  summarise(
+    start = min(hotspot_start),
+    end = max(hotspot_end),
+    numberOf_sv = n_distinct(SV_ID),
+    numberOf_omim = sum(OverlapsOmim, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(hotspot_summary)
+
+#excel output
+excel_hotspotSummary <- "hotspot_summary.xlsx"
+write_xlsx(hotspot_summary, excel_hotspotSummary)
+
+```
+
+```{r}
+
+# Chromosomes with hotspots
+hotspot_chromosomes <- c(2, 3, 4, 9, 11, 14, 16, 17, 19, 20)
+
+# Filter your dataset for these chromosomes
+hotspot_chrom_sum <- summary_OG_hotspots %>% 
+  filter(hotspot_chrom %in% hotspot_chromosomes)
+
+#a list for the  pie charts
+pie_charts_list <- list()
+legend_data <- data.frame(OG = character(), fraction = numeric())
+
+for(chrom in hotspot_chromosomes) {
+  # Filter for the current chromosome
+  data_for_chrom <- hotspot_chrom_sum %>% 
+    filter(hotspot_chrom == chrom) %>%
+    mutate(OG = factor(OG))  
+  
+  pie_chart_ogChrom <- ggplot(data_for_chrom, aes(x = "", y = fraction, fill = OG)) +
+    geom_bar(width = 1, stat = "identity") +
+    coord_polar("y") + 
+    labs(title = paste (chrom), x = NULL, y = NULL) +
+    theme_void() +
+    theme(legend.position = "none" ) 
+  
+  pie_charts_list[[as.character(chrom)]] <- pie_chart_ogChrom
+  
+  legend_data <- rbind(legend_data, unique(data_for_chrom[, c("OG", "fraction")]))
+}
+
+universal_legend_plot <- ggplot(legend_data, aes(x = "", y = fraction, fill = OG)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y") + 
+  labs(title = "Overlapping Genes", x = NULL, y = NULL) +
+  theme_void() +
+  theme(legend.position = "bottom") 
+
+combined_pie_plot <- wrap_plots(pie_charts_list, ncol = 4) + universal_legend_plot +
+  coord_fixed(ratio = .5) 
+
+print(combined_pie_plot)
+
+```

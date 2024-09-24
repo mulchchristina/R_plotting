@@ -1,0 +1,1353 @@
+---
+title: "Score_based_PB"
+output: html_document
+date: "2023-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+```
+
+From:stats.txt
+TotalGERP_Features	237970( check this number this is how many bins we have for 10kb windows, these should be different)
+TotalGERP_BP	2379550890
+Total.SVs-GERP.Intersects	414012
+Unique.GERP.Intersecting.SVs	5196
+Unique.SVs.Intersecting.GERP	407760
+
+Averaged bins intersection data(after averageing step)
+
+1kb windows ave score- updated
+```{r}
+
+# Read file intersect_rheMac10.1kbmakewindows_Score_bins_intersect.txt gerp.intersect.100.avgByWindow.bed'
+mMul10_1000bpBin_Score <- read.table('gerp.intersect.1000.avgByWindow.bed', header = FALSE, stringsAsFactors = FALSE)
+
+
+
+# column names
+colnames(mMul10_1000bpBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore", "RunningBinCount")
+
+# Read file intersect_rheMac10.1kbmakewindows_Score_bins_intersect.txt
+mMul10_100bpBin_Score <- read.table('gerp.intersect.100.avgByWindow.bed', header = FALSE, stringsAsFactors = FALSE)
+
+
+
+# column names
+colnames(mMul10_100bpBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore", "RunningBinCount")
+
+```
+
+-------------------
+with updated files and sum of intersection
+1kb windows ave score and SV intersect
+```{r}
+# Read file intersect_rheMac10.1000bpmakewindows_gerp_bins_intersect.txt, try new file SV.gerp.intersect.100.avgByWindow.bed.gz
+mMul10_1000bpBin_Gerp <- read.table('SV.gerp.intersect.1000.avgByWindow.bed.gz', header = FALSE, stringsAsFactors = FALSE)
+
+# column names
+colnames(mMul10_1000bpBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore" , "RunningBinCount" ,"LengthOverlap")
+
+# Read file intersect_rheMac10.1000bpmakewindows_gerp_bins_intersect.txt
+mMul10_1000bpBin_Gerp_NOIntersect <- read.table('intersect_rheMac10.1000bpmakewindows_gerp_bins_NO_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+#These are the BINS and AVE score without an SV
+
+# column names
+colnames(mMul10_1000bpBin_Gerp_NOIntersect) <- c("BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore")
+```
+
+```{r}
+
+#100bp 
+# Read file intersect_rheMac10.100bpmakewindows_gerp_bins_intersect.txt
+mMul10_100bpBin_Gerp <- read.table('SV.gerp.intersect.100.avgByWindow.bed.gz', header = FALSE, stringsAsFactors = FALSE)
+# Bens file is missing average score- dont use this one for now mMul10_100bpBin_Gerp <- read.table('svData.intersect.SVs.GERP.txt', header = FALSE, stringsAsFactors = FALSE)
+# column names
+colnames(mMul10_100bpBin_Gerp) <- c("SVchrom", "SVstart", "SVend","SV_ID","BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore" , "RunningBinCount" ,"LengthOverlap")
+
+
+# Read file intersect_rheMac10.100bpmakewindows_gerp_bins_intersect.txt
+mMul10_100bpBin_Gerp_NOIntersect <- read.table('intersect_rheMac10.100bpmakewindows_gerp_bins_NO_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+#These are the BINS and AVE score without an SV
+# column names
+colnames(mMul10_100bpBin_Gerp_NOIntersect) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+
+
+```
+
+```{r} 
+
+#with updated files 
+#plotting 1kb at once
+
+SVoverlap_1000bp <- ggplot(mMul10_1000bpBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-10, 10))
+
+print(SVoverlap_1000bp)
+
+SVoverlap_100bp <- ggplot(mMul10_100bpBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 100bp bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-10, 10))
+
+print(SVoverlap_100bp)
+
+```
+
+
+```{r} 
+
+#with updated files 
+#plotting 1kb at once
+
+SVoverlap_1000bp <- ggplot(mMul10_1000bpBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+print(SVoverlap_1000bp)
+
+SVoverlap_100bp <- ggplot(mMul10_100bpBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 100bp bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+print(SVoverlap_100bp)
+```
+
+      
+```{r}
+
+#just the bins mMul10_1000bpBin_Score
+Bins_100bp <- ggplot(mMul10_100bpBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 100bp bin",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+print(Bins_100bp)
+
+Bins_1000bp <- ggplot(mMul10_1000bpBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1000bp bin",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+
+print(Bins_1000bp)
+
+
+```
+
+
+```{r}
+
+density_plots_bins <-  Bins_1000bp + Bins_100bp + SVoverlap_1000bp + SVoverlap_100bp + plot_layout(ncol = 1, heights = c(2, 2, 2, 2), guides = "collect") +
+  plot_annotation(title = "average bin and SV intersections ")
+
+#patch
+print(density_plots_bins)
+
+
+```
+
+
+```{r}
+
+# Bin the LengthOverlap and RunningBinCount variables
+mMul10_100bpBin_Gerp$LengthOverlap_bin <- cut(mMul10_100bpBin_Gerp$LengthOverlap, breaks = seq(min(mMul10_100bpBin_Gerp$LengthOverlap), max(mMul10_100bpBin_Gerp$LengthOverlap), by = 6), include.lowest = TRUE)
+mMul10_100bpBin_Gerp$RunningBinCount_bin <- cut(mMul10_100bpBin_Gerp$RunningBinCount, breaks = seq(min(mMul10_100bpBin_Gerp$RunningBinCount), max(mMul10_100bpBin_Gerp$RunningBinCount), by = 10), include.lowest = TRUE)
+#1000
+mMul10_1000bpBin_Gerp$LengthOverlap_bin <- cut(mMul10_1000bpBin_Gerp$LengthOverlap, breaks = seq(min(mMul10_1000bpBin_Gerp$LengthOverlap), max(mMul10_1000bpBin_Gerp$LengthOverlap), by = 20), include.lowest = TRUE)
+mMul10_1000bpBin_Gerp$RunningBinCount_bin <- cut(mMul10_1000bpBin_Gerp$RunningBinCount, breaks = seq(min(mMul10_1000bpBin_Gerp$RunningBinCount), max(mMul10_1000bpBin_Gerp$RunningBinCount), by = 10), include.lowest = TRUE)
+```
+
+```{r}
+ggplot(mMul10_100bpBin_Gerp, aes(x = factor(RunningBinCount), y = AveGerpScore)) +
+  geom_violin() +
+  labs(title = "AveGerpScore for 100 bp bins with Different RunningBinCounts",
+       x = "RunningBinCount",
+       y = "AveGerpScore") +
+  theme_minimal()
+
+ggplot(mMul10_1000bpBin_Gerp, aes(x = factor(RunningBinCount), y = AveGerpScore)) +
+  geom_boxplot() +
+  labs(title = "AveGerpScore for 1000bp bins with Different RunningBinCounts",
+       x = "RunningBinCount",
+       y = "AveGerpScore") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(mMul10_100bpBin_Gerp, aes(x = factor(RunningBinCount), y = LengthOverlap_bin)) +
+  geom_jitter() +
+  labs(title = "LengthOverlap_bin for 100 bp bins with Different RunningBinCounts",
+       x = "RunningBinCount",
+       y = "LengthOverlap_bin") +
+  theme_minimal()
+
+ggplot(mMul10_1000bpBin_Gerp, aes(x = factor(RunningBinCount), y = LengthOverlap_bin)) +
+  geom_jitter() +
+  labs(title = "v for 1000bp bins with Different RunningBinCounts",
+       x = "RunningBinCount",
+       y = "LengthOverlap_bin") +
+  theme_minimal()
+```
+
+
+
+```{r}
+
+ggplot(mMul10_100bpBin_Gerp, aes(x = LengthOverlap_bin, y = AveGerpScore)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of AveGerpScore for 100bp windows",
+       x = "LengthOverlap_bin",
+       y = "AveGerpScore") +
+  theme_minimal()
+
+ggplot(mMul10_1000bpBin_Gerp, aes(x = LengthOverlap_bin, y = AveGerpScore)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of AveGerpScore for 1000bp windows",
+       x = "LengthOverlap_bin",
+       y = "AveGerpScore") +
+  theme_minimal()
+
+```
+
+```{r}
+
+
+# Bin the LengthOverlap and RunningBinCount 
+mMul10_100bpBin_Gerp$LengthOverlap_bin <- cut(mMul10_100bpBin_Gerp$LengthOverlap, breaks = seq(min(mMul10_100bpBin_Gerp$LengthOverlap), max(mMul10_100bpBin_Gerp$LengthOverlap), by = 50), include.lowest = TRUE)
+mMul10_100bpBin_Gerp$RunningBinCount_bin <- cut(mMul10_100bpBin_Gerp$RunningBinCount, breaks = seq(min(mMul10_100bpBin_Gerp$RunningBinCount), max(mMul10_100bpBin_Gerp$RunningBinCount), by = 10), include.lowest = TRUE)
+
+
+
+ggplot(mMul10_100bpBin_Gerp, aes(x = LengthOverlap_bin, y = RunningBinCount_bin, fill = AveGerpScore)) +
+  geom_density() +
+  scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), na.value = "white") +
+  labs(title = " AveGerpScore",
+       x = "LengthOverlap_bin",
+       y = "RunningBinCount_bin") +
+  theme_minimal()
+```
+
+```{r}
+
+ggplot(mMul10_100bpBin_Gerp, aes(x = LengthOverlap)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Length of Overlap 100bp",
+       x = "Length of overlap",
+       y = "Density")
+
+ggplot(mMul10_1000bpBin_Gerp, aes(x = RunningBinCount)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Running bin Counts 1000bp",
+       x = "Running bin count",
+       y = "Density")
+
+ggplot(mMul10_1000bpBin_Gerp, aes(x = LengthOverlap)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Length of Overlap 1000bp",
+       x = "Length of overlap",
+       y = "Density")
+
+ggplot(mMul10_100bpBin_Gerp, aes(x = RunningBinCount)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Running bin Counts 100bp",
+       x = "RunningBinCount",
+       y = "Density")
+
+
+```
+
+```{r}
+
+SVoverlap_1000bp_NOoverlap <- ggplot(mMul10_1000bpBin_Gerp_NOIntersect, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1kb bin that didnt overlap with SVs",
+       x = "Average GERP Score",
+       y = "Density")
+       
+
+print(SVoverlap_1000bp_NOoverlap)
+```
+
+```{r}
+#this was done in the first block, just add in the SV or not 
+# Read file intersect_rheMac10.1kbmakewindows_Score_bins_intersect.txt
+#mMul10_1000bpBin_Score <- read.table('gerp.intersect.1000.avgByWindow.bed', header = FALSE, stringsAsFactors = FALSE)
+
+
+# column names
+#colnames(mMul10_1000bpBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore", "RunningBinCount")
+
+#1kb bins overlapping or not
+# Merge the two data frames based on Bin_ID
+#mMul10_1000bpBin_Score_ALL <- merge(mMul10_1000bpBin_Score, mMul10_1000bpBin_Gerp, by = "Bin_ID", all.x = TRUE, all.y = TRUE)
+mMul10_1000bpBin_Score_ALL <- left_join(mMul10_1000bpBin_Score, mMul10_1000bpBin_Gerp, by = "Bin_ID")
+
+# Create a new column indicating overlap
+mMul10_1000bpBin_Score_ALL$HasSVOverlap <- ifelse(!is.na(mMul10_1000bpBin_Score_ALL$SV_ID), TRUE, FALSE)
+
+```
+
+```{r}
+
+#100bp
+# Read file intersect_rheMac10.1kbmakewindows_Score_bins_intersect.txt
+#mMul10_100bpBin_Score <- read.table('gerp.intersect.100.avgByWindow.bed', header = FALSE, stringsAsFactors = FALSE)
+
+
+# column names
+#colnames(mMul10_100bpBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "Bin_ID", "AveGerpScore", "RunningBinCount")
+
+#100 bins overlapping or not
+# Merge the two data frames based on Bin_ID
+#mMul10_100bpBin_Score_ALL <- merge(mMul10_1000bpBin_Score, mMul10_100bpBin_Gerp, by = "Bin_ID", all.x = TRUE, all.y = TRUE)
+mMul10_100bpBin_Score_ALL <- left_join(mMul10_100bpBin_Score, mMul10_100bpBin_Gerp, by = "Bin_ID")
+
+# Create a new column indicating overlap
+mMul10_100bpBin_Score_ALL$HasSVOverlap <- ifelse(!is.na(mMul10_100bpBin_Score_ALL$SV_ID), TRUE, FALSE)
+
+```
+
+```{r}
+#1kb plotting
+#  counts and fractions
+counts1000 <- table(mMul10_1000bpBin_Score_ALL$HasSVOverlap)
+total1000 <- length(mMul10_1000bpBin_Score_ALL$HasSVOverlap)
+fractions1000 <- prop.table(counts1000)
+
+# Create a data frame for plotting
+plot_1000bpHasSVOverlap <- data.frame(HasSVOverlap = names(counts1000), Count = as.numeric(counts1000), Fraction = as.numeric(fractions1000))
+
+# Plot
+ggplot(plot_1000bpHasSVOverlap, aes(x = HasSVOverlap, y = Count, fill = HasSVOverlap)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Count), position = position_dodge(width = 1), vjust = -0.5) +
+  geom_text(aes(label = scales::percent(Fraction)), position = position_dodge(width = 1), vjust = 1.5) +
+  labs(title = "1000bp Bins with SV overlaps",
+       x = "HasSVOverlap",
+       y = "Count") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_minimal()
+```
+
+```{r}
+
+#100bp plotting
+#  counts and fractions
+counts100 <- table(mMul10_100bpBin_Score_ALL$HasSVOverlap)
+total100 <- length(mMul10_100bpBin_Score_ALL$HasSVOverlap)
+fractions100 <- prop.table(counts100)
+
+# Create a data frame for plotting
+plot_100bpHasSVOverlap <- data.frame(HasSVOverlap = names(counts100), Count_100 = as.numeric(counts100), Fraction = as.numeric(fractions100))
+
+# Plot
+ggplot(plot_100bpHasSVOverlap, aes(x = HasSVOverlap, y = Count_100, fill = HasSVOverlap)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Count_100), position = position_dodge(width = 1), vjust = -0.5) +
+  geom_text(aes(label = scales::percent(Fraction)), position = position_dodge(width = 1), vjust = 1.5) +
+  labs(title = "100bp Bins with SV overlaps",
+       x = "HasSVOverlap",
+       y = "Count") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+#HasSVOverlap
+
+# Plot by Bin ID, facet wrapped by HasSVOverlap
+ggplot(mMul10_100bpBin_Score_ALL, aes(x = BinChrome.x, y = AveGerpScore.x)) +
+  geom_density() +
+  facet_wrap(~ HasSVOverlap, scales = "free_y") +
+  labs(title = "Average GERP Score by Bin ID",
+       x = "Bin ID",
+       y = "Average GERP Score for 100 bp bins") +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+
+# Plot by Bin ID, facet wrapped by HasSVOverlap
+
+ggplot(mMul10_1000bpBin_Score_ALL, aes(x = BinChrome.x, y = AveGerpScore.x)) +
+  geom_point() +
+  facet_wrap(~ HasSVOverlap, scales = "free_y") +
+  labs(title = "Average GERP Score by Bin ID",
+       x = "Bin ID",
+       y = "Average GERP Score for 1000 bp bins") +
+  theme_minimal()
+
+```
+```{r}
+ggplot(mMul10_100bpBin_Score_ALL, aes(x = AveGerpScore.x)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ HasSVOverlap, scales = "free_y") +
+  labs(title = " Average GERP Scores & 100bp bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+```
+
+```{r}
+
+
+ggplot(mMul10_1000bpBin_Score_ALL, aes(x = AveGerpScore.x)) +
+  geom_density(alpha = 0.5, position = "stack") +
+  facet_wrap(~ HasSVOverlap, scales = "free_y", ncol = 1) +
+  labs(title = "Average GERP Scores & 1000bp bin and SVs",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12)) +
+  theme_minimal()
+
+
+```
+
+```{r}
+library(dplyr)
+
+# AveGerpScore.x > 0
+PositiveGerp_1000bp <- mMul10_1000bpBin_Score_ALL %>%
+  filter(AveGerpScore.x > 0)
+
+# Plot with filtered data
+ggplot(PositiveGerp_1000bp, aes(x = AveGerpScore.x)) +
+  geom_density(alpha = 0.5, position = "stack") +
+  facet_wrap(~ HasSVOverlap, scales = "free_y", ncol = 1) +
+  labs(title = "1000bp bin and SVs (AveGerpScore > 0)",
+       x = "Average GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(0, 12)) +  # Adjust x-axis limits based on your preference
+  theme_minimal()
+
+
+```
+
+
+```{r}
+
+#load in raw SV intersection intersect_gerp_SVs.txt
+GERP_SV_rawIntersect <- read.table('intersect_gerp_SVs.txt', header = FALSE, stringsAsFactors = FALSE)
+#These are the BINS and AVE score without an SV
+# column names
+colnames(GERP_SV_rawIntersect) <- c("SVchrom", "SVstart","SVend","SV_ID", "GerpChrome", "GerpStart", "GerpEnd", "GerpScore", "Length_Overlap")
+
+GERP_SV_rawIntersect$Gerp_ID <- paste(GERP_SV_rawIntersect$GerpChrome, GERP_SV_rawIntersect$GerpStart, sep = ":")
+GERP_SV_rawIntersect$Gerp_ID <- paste(GERP_SV_rawIntersect$Gerp_ID, GERP_SV_rawIntersect$GerpEnd, sep = "-")
+
+```
+
+```{r}
+
+#load in raw SV intersection intersect_gerp_SVs.txt
+#'gerp.intersect.100.avgByWindow.raw.veryHighScore.txt
+GERP_SV_rawIntersect_veryhighscores <- read.table('intersect_gerp_SVs_veryhighscores.txt', header = FALSE, stringsAsFactors = FALSE)
+```
+
+```{r}
+# INFO fields from VCF header
+info_fields <- c(
+    "AC=Allele count in genotypes, for each ALT allele, in the same order as listed",
+    "AF=Allele Frequency, for each ALT allele, in the same order as listed",
+    "AN=Total number of alleles in called genotypes",
+    "ANN=Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name",
+    "CIPOS=Confidence interval around POS for imprecise variants",
+    "END=End position of the structural variant described in this record",
+    "ExcHet=Test excess heterozygosity; 1=good, 0=bad",
+    "ExcessHet=Phred-scaled p-value for exact test of excess heterozygosity",
+    "HIG=A comma-separated list of any overlapping genes with high-impact effects on p",
+    "HWE=HWE test (PMID:15789306); 1=good, 0=bad",
+    "IMPACT=The highest impact annotation provided by SnpEff, limited to protein_codin",
+    "IMPRECISE=Imprecise structural variation",
+    "LOF=Predicted loss of function effects for this variant. Format: 'Gene_Name | Gen",
+    "MAF=The minor allele frequency (frequency of second most common allele), derived f",
+    "MATEDIST=Distance to the mate breakend for mates on the same contig",
+    "MATEID=ID of mate breakends",
+    "MV_NUM=Number of mendelian violations across all samples.",
+    "MV_SAMPLES=Samples where a mendelian violation was observed.",
+    "NMD=Predicted nonsense mediated decay effects for this variant. Format: 'Gene_Nam",
+    "NotFullySpanned=Duplication variant does not have any fully spanning reads",
+    "OG=A comma-separated list of any overlapping genes, identified by SnpEff. This in",
+    "SVANN=Repeat annotation of structural variant",
+    "SVLEN=Difference in length between REF and ALT alleles",
+    "SVTYPE=Type of structural variant",
+    "VE=A comma-separated list of predicted variant effects, generated by SnpEff"
+)
+
+# Extract ID and Description from INFO fields
+info_column_names <- gsub("^([^=]+)=.*", "\\1", info_fields)
+
+# Print the generated column names
+cat("Generated Column Names:\n")
+cat(info_column_names, sep = "\n")
+```
+```{r}
+
+# column names
+colnames(GERP_SV_rawIntersect_veryhighscores) <- c("SVchrom", "SVstart","SV_ID", "GerpChrome", "GerpStart", "GerpEnd", "GerpScore", "Length_Overlap")
+
+#CHROM  POS     ID      REF     
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+GERP_SV_rawIntersect_veryhighscores$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores$GerpChrome, GERP_SV_rawIntersect_veryhighscores$GerpStart, sep = ":")
+GERP_SV_rawIntersect_veryhighscores$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores$Gerp_ID, GERP_SV_rawIntersect_veryhighscores$GerpEnd, sep = "-")
+
+
+```
+
+```{r}
+
+#load in raw SV intersection intersect_gerp_SVs.txt NEW VCF intersection
+#'gerp.intersect.100.avgByWindow.raw.veryHighScore.txt
+GERP_SV_rawIntersect_veryhighscores <- read.table('intersect_gerp_SVs_veryhighscores_updated.txt', header = FALSE, stringsAsFactors = FALSE)
+
+
+```
+
+```{r}
+#Take col 1,2,3, 55, 56, 57 and 58 to reformat
+selected_cols <- GERP_SV_rawIntersect_veryhighscores[, c(1, 2, 3, 54, 55, 56, 57, 58)]
+
+GERP_SV_rawIntersect_veryhighscores_updated <- as.data.frame(selected_cols)
+# column names
+colnames(GERP_SV_rawIntersect_veryhighscores_updated) <- c("SVchrom", "SVstart","SV_ID", "GerpChrome", "GerpStart", "GerpEnd", "GerpScore", "Length_Overlap")
+
+#CHROM  POS     ID      REF 
+
+#still need the end coord, so go back and grab the REFLENGTH col and then count the chars and add to 2
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+GERP_SV_rawIntersect_veryhighscores_updated$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores_updated$GerpChrome, GERP_SV_rawIntersect_veryhighscores_updated$GerpStart, sep = ":")
+GERP_SV_rawIntersect_veryhighscores_updated$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores_updated$Gerp_ID, GERP_SV_rawIntersect_veryhighscores_updated$GerpEnd, sep = "-")
+
+```
+
+```{r}
+# column names
+colnames(GERP_SV_rawIntersect_veryhighscores) <- c("SVchrom", "SVstart","SVend","SV_ID", "GerpChrome", "GerpStart", "GerpEnd", "GerpScore", "Length_Overlap")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+GERP_SV_rawIntersect_veryhighscores$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores$GerpChrome, GERP_SV_rawIntersect_veryhighscores$GerpStart, sep = ":")
+GERP_SV_rawIntersect_veryhighscores$Gerp_ID <- paste(GERP_SV_rawIntersect_veryhighscores$Gerp_ID, GERP_SV_rawIntersect_veryhighscores$GerpEnd, sep = "-")
+
+```
+
+
+```{r}
+
+# Plot by Gerp score, length of
+ggplot(GERP_SV_rawIntersect_veryhighscores_updated, aes(x = SV_ID, y = GerpScore)) +
+  geom_point() +
+  facet_wrap(~ Length_Overlap, scales = "free_y") +
+  labs(title = " GERP Score by SV ID wrapped with Length overlap for scores over 5",
+       y = "GERP Score") +
+  theme_minimal()
+
+# Plot by Gerp score, length of
+ggplot(GERP_SV_rawIntersect_veryhighscores_updated, aes(x = SV_ID, y = GerpScore)) +
+  geom_point() +
+  labs(title = " GERP Score by SV ID for scores over 5",
+       y = "GERP Score") +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+# Plot by Gerp score, length of
+ggplot(GERP_SV_rawIntersect_veryhighscores_updated, aes(x = Gerp_ID, y = GerpScore)) +
+  geom_point() +
+  labs(title = " GERP Score by Gerp ID for scores over 5",
+       y = "GERP Score") +
+  theme_minimal()
+
+```
+
+```{r}
+
+Raw_GERP_SVintersects <- ggplot(GERP_SV_rawIntersect, aes(x = GerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " All SV intersects GERP Scores ",
+       x = "GERP Score",
+       y = "Density") +
+  coord_cartesian(xlim = c(-12, 12))
+
+
+print(Raw_GERP_SVintersects)
+```
+
+```{r}
+# Plot by Gerp score, length of
+ggplot(GERP_SV_rawIntersect, aes(x = SV_ID, y = GerpScore)) +
+  geom_point() +
+  facet_wrap(~ Length_Overlap, scales = "free_y") +
+  labs(title = " GERP Score by SV ID wrapped with Length overlap ",
+       y = "GERP Score") +
+  theme_minimal()
+
+```
+
+```{r}
+# Plot by Gerp score, length of
+ggplot(GERP_SV_rawIntersect, aes(x = SV_ID, y = GerpScore)) +
+  geom_point() +
+  labs(title = " GERP Score by SV ID",
+       y = "GERP Score") +
+  theme_minimal()
+```
+
+ok now add in SVdata so that We can asses if some of the very high scores are real or not 
+GERP_SV_rawIntersect_veryhighscores and svData
+
+```{r}
+GERP_SV_rawIntersect_veryhighscores_svData <- left_join(GERP_SV_rawIntersect_veryhighscores_updated, svData, by = "SV_ID")
+
+```
+
+```{r}
+#are these real
+GERP_SV_rawIntersect_veryhighscores_svData$AF <- as.numeric(GERP_SV_rawIntersect_veryhighscores_svData$AF)
+
+#  AF faceted by SVTYPE
+GerpIntersectAF <- ggplot(GERP_SV_rawIntersect_veryhighscores_svData, aes(x = AF)) +
+  geom_density() +
+  facet_wrap(~ SVTYPE, scales = "free_y") +
+  labs(title = "Distribution of Allele Frequency by SVTYPE",
+       x = "Allele Frequency",
+       y = "Density")
+
+
+print(GerpIntersectAF)
+
+```
+```{r}
+
+# Convert AF column to numeric (if it's not already)
+GERP_SV_rawIntersect_veryhighscores_svData$AF <- as.numeric(GERP_SV_rawIntersect_veryhighscores_svData$AF)
+
+# Add a column indicating whether OG is NA or not
+GERP_SV_rawIntersect_veryhighscores_svData$OG_NA <- is.na(GERP_SV_rawIntersect_veryhighscores_svData$OG)
+
+# Add a column indicating whether Length_Overlap is greater than 5
+GERP_SV_rawIntersect_veryhighscores_svData$Length_Overlap_GreaterThan5 <- GERP_SV_rawIntersect_veryhighscores_svData$Length_Overlap > 5
+
+GERPoverlap_labels <- c(`TRUE` = "Overlap with GERP is 5 or more bp", `FALSE` = "Short overlap with GERP")
+
+# Plot the fraction of total for each group, faceted by OG_NA and Length_Overlap_GreaterThan5
+OG_Overlapmorethan5 <- ggplot(GERP_SV_rawIntersect_veryhighscores_svData, aes(x = SVTYPE, fill = factor(OG_NA))) +
+  geom_bar(position = "fill") +
+  labs(title = "Fraction of Total with NA/Non-NA OG by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total") +
+  scale_fill_manual(values = c("TRUE" = "darkolivegreen", "FALSE" = "blue")) +
+  guides(fill = guide_legend(title = "OG is NA")) +
+  facet_wrap(~Length_Overlap_GreaterThan5, labeller = labeller(Length_Overlap_GreaterThan5 = GERPoverlap_labels))
+# Print the plot
+print(OG_Overlapmorethan5)
+
+
+OG_newSVoverlap <- ggplot(GERP_SV_rawIntersect_veryhighscores_svData, aes(x = SVTYPE, fill = factor(OG_NA))) +
+  geom_bar(position = "fill") +
+  labs(title = "Fraction of Total with NA/Non-NA OG by SVTYPE",
+       x = "SVTYPE",
+       y = "Fraction of Total") +
+  scale_fill_manual(values = c("TRUE" = "darkolivegreen", "FALSE" = "blue")) +
+  guides(fill = guide_legend(title = "OG is NA")) 
+
+# Print the plot
+print(OG_newSVoverlap)
+
+```
+
+
+
+______________
+Older workflows and larger window sizes
+
+PLOTTING these together
+```{r}
+library(patchwork)
+#Lets plot these 
+
+#for ave bin score 
+binScore_10kb <- ggplot(mMul10_10kbBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 10kb bins ",
+       x = "Average GERP Score",
+       y = "Density")
+
+binScore_7kb <- ggplot(mMul10_7kbBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 7kb bins ",
+       x = "Average GERP Score",
+       y = "Density")
+       
+binScore_5kb <- ggplot(mMul10_5kbBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 5kb bins",
+       x = "Average GERP Score",
+       y = "Density")
+       
+binScore_1kb <- ggplot(mMul10_1000bpBin_Score, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1kb bins",
+       x = "Average GERP Score",
+       y = "Density")
+       
+density_plots_aveBinScores <- binScore_7kb + binScore_5kb + binScore_1kb + plot_layout(ncol = 1, heights = c(2, 2, 2, 2), guides = "collect") +
+  plot_annotation(title = "average bin Scores ")
+
+#patch
+print(density_plots_aveBinScores)
+```
+
+
+SV intersection data(last step)
+```{r}
+#lets start with this file for the 10kb windows with aveerage gerp score intersected with SV data intersect_rheMac10.10kbmakewindows_gerp_bins_intersect.txt
+
+# Read file intersect_rheMac10.10kbmakewindows_gerp_bins_intersect.txt
+mMul10_10kbBin_Gerp <- read.table('intersect_rheMac10.10kbmakewindows_gerp_bins_SVintersect.txt', header = FALSE, stringsAsFactors = FALSE)
+# Bens file is missing average score- dont use this one for now mMul10_10kbBin_Gerp <- read.table('svData.intersect.SVs.GERP.txt', header = FALSE, stringsAsFactors = FALSE)
+
+
+# column names
+colnames(mMul10_10kbBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "AveGerpScore", "LengthOverlap")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_10kbBin_Gerp$Bin_ID <- paste(mMul10_10kbBin_Gerp$BinChrome, mMul10_10kbBin_Gerp$BinStart, sep = ":")
+mMul10_10kbBin_Gerp$Bin_ID <- paste(mMul10_10kbBin_Gerp$Bin_ID, mMul10_10kbBin_Gerp$BinEnd, sep = "-")
+```
+
+7kb windows SV intersection data 
+```{r}
+# Read file intersect_rheMac10.7kbmakewindows_gerp_bins_intersect.txt
+mMul10_7kbBin_Gerp <- read.table('intersect_rheMac10.7kbmakewindows_gerp_bins_SVintersect.txt', header = FALSE, stringsAsFactors = FALSE)
+
+# column names
+colnames(mMul10_7kbBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "AveGerpScore", "LengthOverlap")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_7kbBin_Gerp$Bin_ID <- paste(mMul10_7kbBin_Gerp$BinChrome, mMul10_7kbBin_Gerp$BinStart, sep = ":")
+mMul10_7kbBin_Gerp$Bin_ID <- paste(mMul10_7kbBin_Gerp$Bin_ID, mMul10_7kbBin_Gerp$BinEnd, sep = "-")
+
+```
+
+
+5kb windows SV intersection data 
+```{r}
+
+# Read file intersect_rheMac10.5kbmakewindows_gerp_bins_intersect.txt
+mMul10_5kbBin_Gerp <- read.table('intersect_rheMac10.5kbmakewindows_gerp_bins_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+# Bens file is missing average score- dont use this one for now mMul10_5kbBin_Gerp <- read.table('svData.intersect.SVs.GERP.txt', header = FALSE, stringsAsFactors = FALSE)
+
+
+# column names
+colnames(mMul10_5kbBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "AveGerpScore", "LengthOverlap")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_5kbBin_Gerp$Bin_ID <- paste(mMul10_5kbBin_Gerp$BinChrome, mMul10_5kbBin_Gerp$BinStart, sep = ":")
+mMul10_5kbBin_Gerp$Bin_ID <- paste(mMul10_5kbBin_Gerp$Bin_ID, mMul10_5kbBin_Gerp$BinEnd, sep = "-")
+
+```
+
+
+1kb windows SV intersection data
+```{r}
+
+# Read file intersect_rheMac10.1kbmakewindows_gerp_bins_intersect.txt
+mMul10_1kbBin_Gerp <- read.table('intersect_rheMac10.1kbmakewindows_gerp_bins_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+# Bens file is missing average score- dont use this one for now mMul10_1kbBin_Gerp <- read.table('svData.intersect.SVs.GERP.txt', header = FALSE, stringsAsFactors = FALSE)
+# column names
+colnames(mMul10_1kbBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "AveGerpScore", "LengthOverlap")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_1kbBin_Gerp$Bin_ID <- paste(mMul10_1kbBin_Gerp$BinChrome, mMul10_1kbBin_Gerp$BinStart, sep = ":")
+mMul10_1kbBin_Gerp$Bin_ID <- paste(mMul10_1kbBin_Gerp$Bin_ID, mMul10_1kbBin_Gerp$BinEnd, sep = "-")
+
+# Read file intersect_rheMac10.1kbmakewindows_gerp_bins_intersect.txt
+mMul10_1kbBin_Gerp_NOIntersect <- read.table('intersect_rheMac10.1kbmakewindows_gerp_bins_NO_intersect.txt.gz', header = FALSE, stringsAsFactors = FALSE)
+#These are the BINS and AVE score without an SV
+# column names
+colnames(mMul10_1kbBin_Gerp_NOIntersect) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_1kbBin_Gerp$Bin_ID <- paste(mMul10_1kbBin_Gerp$BinChrome, mMul10_1kbBin_Gerp$BinStart, sep = ":")
+mMul10_1kbBin_Gerp$Bin_ID <- paste(mMul10_1kbBin_Gerp$Bin_ID, mMul10_1kbBin_Gerp$BinEnd, sep = "-")
+
+
+```
+
+```{r}
+
+#lets start with this file for the 10kb windows with average Score score intersected with SV data intersect_rheMac10.10kbmakewindows_Score_bins_intersect.txt
+
+
+# Read file intersect_rheMac10.10kbmakewindows_Score_bins_intersect.txt
+mMul10_10kbBin_Score <- read.table('intersect_rheMac10.10kbmakewindows_gerp_intersect_binSums.txt', header = FALSE, stringsAsFactors = FALSE)
+
+
+
+# column names
+colnames(mMul10_10kbBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_10kbBin_Score$Bin_ID <- paste(mMul10_10kbBin_Score$BinChrome, mMul10_10kbBin_Score$BinStart, sep = ":")
+mMul10_10kbBin_Score$Bin_ID <- paste(mMul10_10kbBin_Score$Bin_ID, mMul10_10kbBin_Score$BinEnd, sep = "-")
+```
+
+7kb windows ave score 
+```{r}
+# Read file intersect_rheMac10.7kbmakewindows_Score_bins_intersect.txt
+mMul10_7kbBin_Score <- read.table('intersect_rheMac10.7kbmakewindows_gerp_intersect_binSums.txt', header = FALSE, stringsAsFactors = FALSE)
+
+# column names
+colnames(mMul10_7kbBin_Score) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_7kbBin_Score$Bin_ID <- paste(mMul10_7kbBin_Score$BinChrome, mMul10_7kbBin_Score$BinStart, sep = ":")
+mMul10_7kbBin_Score$Bin_ID <- paste(mMul10_7kbBin_Score$Bin_ID, mMul10_7kbBin_Score$BinEnd, sep = "-")
+
+```
+
+```{r}
+#5kb windows ave score
+
+# Read file intersect_rheMac10.5kbmakewindows_Score_bins_intersect.txt
+mMul10_5kbBin_Score <- read.table('intersect_rheMac10.5kbmakewindows_gerp_intersect_binSums.txt', header = FALSE, stringsAsFactors = FALSE)
+# Bens file is missing average score- dont use this one for now mMul10_5kbBin_Score <- read.table('svData.intersect.SVs.Score.txt', header = FALSE, stringsAsFactors = FALSE)
+
+
+# column names
+colnames(mMul10_5kbBin_Score) <- c( "BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_5kbBin_Score$Bin_ID <- paste(mMul10_5kbBin_Score$BinChrome, mMul10_5kbBin_Score$BinStart, sep = ":")
+mMul10_5kbBin_Score$Bin_ID <- paste(mMul10_5kbBin_Score$Bin_ID, mMul10_5kbBin_Score$BinEnd, sep = "-")
+```
+
+PLOTTING these together
+```{r}
+library(patchwork)
+#Lets plot these 
+#for the overlap mMul10_10kbBin_Gerp
+#for ave bin score 
+SVoverlap_10kb <- ggplot(mMul10_10kbBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 10kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density")
+
+SVoverlap_7kb <- ggplot(mMul10_7kbBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 7kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density")
+       
+SVoverlap_5kb <- ggplot(mMul10_5kbBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 5kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density")
+       
+SVoverlap_1kb <- ggplot(mMul10_1kbBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 1kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density")
+       
+density_plots_SV_intersects <- SVoverlap_7kb + SVoverlap_5kb + SVoverlap_1kb + plot_layout(ncol = 1, heights = c(2, 2, 2, 2), guides = "collect") +
+  plot_annotation(title = "average bin and SV intersections ")
+
+#patch
+print(density_plots_SV_intersects)
+```
+
+
+now for the ave gerp scores without in
+```{r}
+#lets add in the window file without the SV intersection, ie the 10kb windows with average gerp score #AveBinScore=intersect_rheMac10.10kbmakewindows_gerp_intersect_binSums.txt
+mMul10_10kbBin_Gerp_aveScore <- read.table('intersect_rheMac10.10kbmakewindows_gerp_intersect_binSums.txt', header = FALSE, stringsAsFactors = FALSE)
+colnames(mMul10_10kbBin_Gerp_aveScore) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore")
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_10kbBin_Gerp_aveScore$Bin_ID <- paste(mMul10_10kbBin_Gerp_aveScore$BinChrome, mMul10_10kbBin_Gerp_aveScore$BinStart, sep = ":")
+mMul10_10kbBin_Gerp_aveScore$Bin_ID <- paste(mMul10_10kbBin_Gerp_aveScore$Bin_ID, mMul10_10kbBin_Gerp_aveScore$BinEnd, sep = "-")
+#there are 237,970 rows, these are for each bin and are unique
+```
+
+
+These are the non averaged scores intersected with the windows, these files are very large and stubbornly dont want to load
+```{r}
+#Here is the file that is source with window overlapping no ave score for this one intersect_rheMac10.10kbmakewindows_gerp_intersect.txt THIS FILE IS V LARGE
+mMul10_10kbBin_Gerp_overlap <- read.table('intersect_rheMac10.10kbmakewindows_gerp_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+colnames(mMul10_10kbBin_Gerp_overlap) <- c("BinChrome", "BinStart", "BinEnd", "gerpChrom", "gerpStart", "gerpEnd", "GerpScore", "overlapBinGerp")
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_10kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_10kbBin_Gerp_overlap$BinChrome, mMul10_10kbBin_Gerp_overlap$BinStart, sep = ":")
+mMul10_10kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_10kbBin_Gerp_overlap$Bin_ID, mMul10_10kbBin_Gerp_overlap$BinEnd, sep = "-")
+
+```
+
+1kb
+```{r}
+#1kb
+#Here is the file that is source with window overlapping no ave score for this one intersect_rheMac10.10kbmakewindows_gerp_intersect.txt THIS FILE IS V LARGE
+mMul10_1kbBin_Gerp_overlap <- read.table('intersect_rheMac10.1kbmakewindows_gerp_intersect.txt.gz', header = FALSE, stringsAsFactors = FALSE)
+colnames(mMul10_1kbBin_Gerp_overlap) <- c("BinChrome", "BinStart", "BinEnd", "gerpChrom", "gerpStart", "gerpEnd", "GerpScore", "overlapBinGerp")
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_1kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_1kbBin_Gerp_overlap$BinChrome, mMul10_1kbBin_Gerp_overlap$BinStart, sep = ":")
+mMul10_1kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_1kbBin_Gerp_overlap$Bin_ID, mMul10_1kbBin_Gerp_overlap$BinEnd, sep = "-")
+```
+5kb
+```{r}
+#5kb unique_bins_df
+#Here is the file that is source with window overlapping no ave score for this one intersect_rheMac10.5kbmakewindows_gerp_intersect.txt THIS FILE IS V LARGE
+mMul10_5kbBin_Gerp_overlap <- read.table('intersect_rheMac10.5kbmakewindows_gerp_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+colnames(mMul10_5kbBin_Gerp_overlap) <- c("BinChrome", "BinStart", "BinEnd", "gerpChrom", "gerpStart", "gerpEnd", "GerpScore", "overlapBinGerp")
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_5kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_5kbBin_Gerp_overlap$BinChrome, mMul10_5kbBin_Gerp_overlap$BinStart, sep = ":")
+mMul10_5kbBin_Gerp_overlap$Bin_ID <- paste(mMul10_5kbBin_Gerp_overlap$Bin_ID, mMul10_5kbBin_Gerp_overlap$BinEnd, sep = "-")
+```
+
+DENSITY PLOTS OF GERP/WINDOWS intersection, no averaging of SV overlaps
+```{r}
+#now make a desity plot of the gerp scores per bin, and the average gerp scores per bin where x is the avergae gerp score and y is density
+
+gerp_10kb<- ggplot(mMul10_10kbBin_Gerp_overlap, aes(x = GerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " GERP Scores &  10kb bins",
+       x = "GERP Score",
+       y = "Density")
+
+print(gerp_10kb)
+```
+
+
+```{r}
+#now make a desity plot of the gerp scores per bin, and the average gerp scores per bin where x is the avergae gerp score and y is density
+
+gerp_1kb<- ggplot(mMul10_1kbBin_Gerp_overlap, aes(x = GerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " GERP Scores &  1kb bins",
+       x = "GERP Score",
+       y = "Density")
+
+print(gerp_1kb)
+```
+
+```{r}
+gerp_5kb<- ggplot(mMul10_5kbBin_Gerp_overlap, aes(x = GerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " GERP Scores &  5kb bins",
+       x = "GERP Score",
+       y = "Density")
+
+print(gerp_5kb)
+
+```
+```
+
+
+```{r}
+
+#for ave bin score 
+avebin_10kb <- ggplot(mMul10_10kbBin_Gerp_aveScore, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & each unique 10kb bin",
+       x = " Average GERP Score",
+       y = "Density")
+
+#for the overlap mMul10_10kbBin_Gerp
+#for ave bin score 
+SVoverlap_10kb <- ggplot(mMul10_10kbBin_Gerp, aes(x = AveGerpScore)) +
+  geom_density(alpha = 0.5) +
+  labs(title = " Average GERP Scores & 10kb bin and SVs",
+       x = "Average GERP Score",
+       y = "Density")
+
+density_plots_10kb <- gerp_10kb + avebin_10kb + SVoverlap_10kb + plot_layout(ncol = 1, heights = c(1, 1, 1), guides = "collect") +
+  plot_annotation(title = "10kb intersections ")
+
+#patch
+print(density_plots_10kb)
+
+#TODO
+#rerun with new file for raw intersect
+##MAKE xmax on bottom two more comparable?
+#do the other sizes
+#overlaps???
+
+```
+
+```{r}
+###
+memory.limit()
+#memory.limit(size = XXXX)
+
+```
+
+
+```{r}
+mMul10_10kbBin_Gerp_all <- read.table('intersect_rheMac10.10kbmakewindows_gerp_ALLbins_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+```
+
+```{r}
+#now for the all file, b is first here
+colnames(mMul10_10kbBin_Gerp_all) <- c("BinChrome", "BinStart", "BinEnd", "AveGerpScore", "SVchrom", "SVstart", "SVend", "SV_ID", "LengthOverlap")
+
+#add in the Bin_ID that is the concat of BinChrome, BinStart and BinEnd
+mMul10_10kbBin_Gerp_all$Bin_ID <- paste(mMul10_10kbBin_Gerp_all$BinChrome, mMul10_10kbBin_Gerp_all$BinStart, sep = ":")
+mMul10_10kbBin_Gerp_all$Bin_ID <- paste(mMul10_10kbBin_Gerp$Bin_ID, mMul10_10kbBin_Gerp_all$BinEnd, sep = "-")
+
+
+```
+
+
+
+# Merge data frames based on Bin_ID- too bulky and bultiple bin ids not unique
+merged_df_windowsAVEscore_SVsintersect <- merge(mMul10_10kbBin_Gerp_aveScore, mMul10_10kbBin_Gerp_dat, by = "Bin_ID", all.x = TRUE)
+merged_df_windowsAVEscore_SVsintersect[is.na(merged_df_windowsAVEscore_SVsintersect$SV_ID), "SV_ID"] <- "NoSV"
+
+merged_df_windowsAVEscore_SVsintersect_grouped <- merged_df_windowsAVEscore_SVsintersect %>% 
+  group_by(SV_ID, Bin_ID) %>% 
+  mutate(SVs_per_Bin_per_SV = n()) %>% 
+  mutate(SVs_per_Bin_per_SV = ifelse(SV_ID == "NoSV", SVs_per_Bin_per_SV, 0)) %>% 
+  group_by(Bin_ID) %>% 
+  reframe(SVs_per_Bin = sum(SVs_per_Bin_per_SV), AveGerpScore = AveGerpScore.x)
+print(merged_df_windowsAVEscore_SVsintersect_grouped)
+
+# how many SV_IDs for each Bin_ID
+bin_id_counts <- table(merged_df_windowsAVEscore_SVsintersect$Bin_ID)
+
+#add col for Bin_ID overlaps any SV_IDs ie true false
+merged_df_windowsAVEscore_SVsintersect$Overlaps_SVs <- merged_df_windowsAVEscore_SVsintersect$Bin_ID %in% names(bin_id_counts[bin_id_counts > 0])
+
+
+
+
+```{r}
+#try to merge another way 
+# Count number of unique SV_IDs for each Bin_ID- was this intentionally overwritten or not??  probably not
+bin_id_counts_old <- table(merged_df_windowsAVEscore_SVsintersect$Bin_ID)
+View(bin_id_counts)
+```
+
+```{r}
+#unique Bin_IDs
+unique_bins_df <- data.frame(Bin_ID = unique(mMul10_10kbBin_Gerp_aveScore$Bin_ID))
+View(mMul10_10kbBin_Gerp_aveScore)
+
+#count of overlapping SV_IDs for each Bin_ID
+unique_bins_df$SV_Count <- as.integer(bin_id_counts[match(unique_bins_df$Bin_ID, names(bin_id_counts))])
+
+# Set the count to 0 for bins without overlapping SV_IDs
+unique_bins_df$SV_Count[is.na(unique_bins_df$SV_Count)] <- 0
+```
+
+```{r}
+#does this fix the issue of missing some bins?
+ # Count number of unique SV_IDs for each Bin_ID
+bin_id_counts_old <- table(merged_df_windowsAVEscore_SVsintersect$Bin_ID)
+
+# unique Bin_IDs
+unique_bins_df <- data.frame(Bin_ID = unique(mMul10_10kbBin_Gerp_aveScore$Bin_ID))
+
+# count of overlapping SV_IDs for each Bin_ID
+unique_bins_df$SV_Count <- as.integer(bin_id_counts_old[match(unique_bins_df$Bin_ID, names(bin_id_counts_old))])
+
+# Set the count to 0 for bins without overlapping SV_IDs
+unique_bins_df$SV_Count[is.na(unique_bins_df$SV_Count)] <- 0
+
+```
+
+
+```{r}
+#trouble shooting why differences cm
+str(unique_bins_df)
+str(bin_id_counts)
+
+identical(unique_bins_df$Bin_ID, merged_df_windowsAVEscore_SVsintersect_grouped$Bin_ID)
+
+setdiff(unique_bins_df$Bin_ID, merged_df_windowsAVEscore_SVsintersect_grouped$Bin_ID)
+setdiff(merged_df_windowsAVEscore_SVsintersect_grouped$Bin_ID, unique_bins_df$Bin_ID)
+#are they the same after sorting
+identical(sort(unique_bins_df$Bin_ID), sort(merged_df_windowsAVEscore_SVsintersect_grouped$Bin_ID))
+#other attributes??
+unique(unique_bins_df$Bin_ID)
+unique(merged_df_windowsAVEscore_SVsintersect_grouped$Bin_ID)
+
+```
+
+
+```{r}
+#SV counts and SV counts per bin should be the same
+summary(mMul10_10kbBin_Gerp_aveScore$AveGerpScore)
+SV_and_GerpScore_10KBWindows_df <- merge(unique_bins_df, merged_df_windowsAVEscore_SVsintersect_grouped, by = "Bin_ID")
+View(SV_and_GerpScore_10KBWindows_df)
+#count model: predict the number of SVs given a conservation score. If score is higher, we would expect fewer SVs
+SV_and_GerpScore_10KBWindows_df$scaled_average_gerp <- scale(SV_and_GerpScore_10KBWindows_df$AveGerpScore)
+```
+
+```{r}
+#good plot for debugging
+ggplot(SV_and_GerpScore_10KBWindows_df, aes(x = AveGerpScore, y = SV_Count)) + 
+  geom_point(alpha = 0.2) + 
+  egg::theme_article()
+
+
+ggplot(SV_and_GerpScore_10KBWindows_df, aes(x = scaled_average_gerp, y = SV_Count)) + 
+  geom_point(alpha = 0.2) + 
+  geom_smooth(method.args = list(family = "binomial"))
+
+theta_estimation_model <- glm(formula = SV_Count ~ AveGerpScore, 
+           family = MASS::negative.binomial(1), 
+           data= SV_and_GerpScore_10KBWindows_df)
+
+theta_estimation<- MASS::theta.ml(theta_estimation_model)
+
+fit <- glm(formula = SV_Count ~ 0 + AveGerpScore, 
+           family = MASS::negative.binomial(theta_estimation), 
+           data= SV_and_GerpScore_10KBWindows_df)
+
+summary(fit)
+coef(fit)
+```
+
+--------------------------------------------
+DIFEERENT WINDOW SIZES && SUMMARY FIGS BELOW
+```{r}
+#1kb summary!
+# Read the data from the file
+mMul10_1kbBin_Gerp <- read.table('intersect_rheMac10.1kbmakewindows_gerp_bins_intersect.txt', header = FALSE, stringsAsFactors = FALSE)
+
+# column names
+colnames(mMul10_1kbBin_Gerp) <- c("SVchrom", "SVstart", "SVend", "SV_ID", "BinChrome", "BinStart", "BinEnd", "AveGerpScore", "LengthOverlap")
+
+# Merge with 'dat' data frame based on 'UniqueKey'
+mMul10_1kbBin_Gerp_dat <- merge(mMul10_1kbBin_Gerp, svData, by = "SV_ID", all.x = TRUE)
+
+#make a bin id col to speed plotting
+mMul10_1kbBin_Gerp_dat <- mMul10_1kbBin_Gerp_dat %>%
+  mutate(Bin_ID = paste(BinChrome, BinStart, BinEnd, sep = "_"))
+
+#df
+countsperBinID_1kb <- mMul10_1kbBin_Gerp_dat %>%
+  group_by(Bin_ID) %>%
+  summarise(Instances = n_distinct(SV_ID))
+
+```
+
+```{r}
+#plot this but tba on type from above...
+```
+
+
+the rest of the summaries below are for the 10kb window intersected with the SV data
+
+```{r}
+
+# Group by SVchrom and calculate the count of unique rows for each SVchrom
+uniq_gerp_chrom <- mMul10_10kbBin_Gerp %>%
+  group_by(SVchrom) %>%
+  summarize(count = n_distinct(SV_ID))
+
+#  Manhattan plot
+ggplot(uniq_gerp_chrom, aes(x = SVchrom, y = count)) +
+  geom_point() +
+  labs(x = "SVchrom", y = "Count of Unique Rows", title = "Manhattan Plot of Unique Rows by SVchrom") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(uniq_gerp_chrom, aes(x = SVchrom, y = count)) +
+  geom_point() +
+  labs(x = "SVchrom", y = "Count of Unique Rows", title = "Scatter Plot of Unique Rows by SVchrom") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(mMul10_10kbBin_Gerp, aes(x = SVchrom, y = AveGerpScore)) +
+  geom_point() +
+  labs(x = "SVchrom", y = "AveGerpScore", title = "Scatter Plot of AveGerpScore by SVchrom") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(mMul10_10kbBin_Gerp, aes(x = BinChrome, y = AveGerpScore)) +
+  geom_point() +
+  labs(x = "BinChrome", y = "AveGerpScore", title = "Scatter Plot of AveGerpScore by SVchrom") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+```
+
+```{r}
+
+#  GERP scores higher than 2
+gerp_higherthan2 <- mMul10_10kbBin_Gerp %>%
+  filter(AveGerpScore > 2)
+
+# View the filtered data
+View(gerp_higherthan2)
+
+write.csv(gerp_higherthan2, "filtered_data.csv", row.names = FALSE)
+```
+
+
+
+```{r}
+#this takes forever and its too much at once
+# Create a data frame with the necessary summary statistics
+summary_data <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(SVTYPE, IMPACT, LengthOverlap) %>%
+  summarize(AveGerpScore = mean(AveGerpScore), .groups = 'drop')
+
+# Create a bar plot
+ggplot(summary_data, aes(x = SVTYPE, y = AveGerpScore, fill = IMPACT)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  facet_wrap(~LengthOverlap, scales = 'free') +
+  labs(x = 'SVTYPE', y = 'Average AveGerpScore') +
+  ggtitle('Average AveGerpScore by SVTYPE, IMPACT, and LengthOverlap')
+
+```
+
+
+```{r}
+# Create some simplified columns to make plotting easier:
+  mMul10_10kbBin_Gerp_dat$OverlapsGene <- !is.na( mMul10_10kbBin_Gerp_dat$OG)
+
+ggplot( mMul10_10kbBin_Gerp_dat %>% group_by(SVTYPE, OverlapsGene) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = OverlapsGene, y = Total)) +
+  geom_col(color = 'black') +
+  scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12)
+
+```
+
+
+```{r}
+# Create a data frame with the necessary summary statistics
+summary_data_impact <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(SVTYPE, IMPACT) %>%
+  summarize(AveGerpScore = mean(AveGerpScore), .groups = 'drop')
+
+# bar plot
+ggplot(summary_data_impact, aes(x = SVTYPE, y = AveGerpScore, fill = IMPACT)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(x = 'SVTYPE', y = 'Average AveGerpScore') +
+  ggtitle('Average AveGerpScore by SVTYPE and IMPACT')
+
+```
+
+
+```{r}
+# Create a data frame with the necessary summary statistics
+summary_data_length_overlap <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(LengthOverlap) %>%
+  summarize(AveGerpScore = mean(AveGerpScore), .groups = 'drop')
+
+# Create a bar plot
+ggplot(summary_data_length_overlap, aes(x = LengthOverlap, y = AveGerpScore)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(x = 'LengthOverlap', y = 'Average AveGerpScore') +
+  ggtitle('Average AveGerpScore by LengthOverlap')
+
+```
+```{r}
+# Define the bin sizes and labels
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Create a new factor column based on LengthOverlap bins
+mMul10_10kbBin_Gerp_dat <- mMul10_10kbBin_Gerp_dat %>%
+  mutate(LengthOverlapBin = cut(LengthOverlap, breaks, labels = tags))
+
+# Create a data frame with the necessary summary statistics
+summary_data_length_overlap <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(LengthOverlapBin) %>%
+  summarize(AveGerpScore = mean(AveGerpScore), .groups = 'drop')
+
+# Create a bar plot
+ggplot(summary_data_length_overlap, aes(x = LengthOverlapBin, y = AveGerpScore)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(x = 'LengthOverlap Bin', y = 'Average AveGerpScore') +
+  ggtitle('Average AveGerpScore by LengthOverlap Bin') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+```{r}
+# Define the bin sizes and labels
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Create a new factor column based on LengthOverlap bins
+mMul10_10kbBin_Gerp_dat <- mMul10_10kbBin_Gerp_dat %>%
+  mutate(SVLengthBin = cut(SVLEN, breaks, labels = tags))
+
+# Create summary statistics
+summary_data_SVlength <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(SVLengthBin) %>%
+  summarize(AveGerpScore = mean(AveGerpScore), .groups = 'drop')
+
+#  bar plot
+ggplot(summary_data_SVlength, aes(x = SVLengthBin, y = AveGerpScore)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(x = 'SV Length Bin', y = 'Average AveGerpScore') +
+  ggtitle('Average AveGerpScore by SV Length Bin') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+library(tidyverse)
+# Combine SVLengthBin and LengthOverlapBin into a new column
+mMul10_10kbBin_Gerp_dat <- mMul10_10kbBin_Gerp_dat %>%
+  mutate(SV_Length_Overlap = paste(SVLengthBin, LengthOverlapBin, sep = "_"))
+
+# AveGerpScore, SV_Length_Overlap
+heatmap_data <- mMul10_10kbBin_Gerp_dat %>%
+  group_by(SV_Length_Overlap) %>%
+  summarize(AveGerpScore = mean(AveGerpScore, na.rm = TRUE), .groups = 'drop')
+
+# Pivot the data for creating a heatmap
+heatmap_data_pivot <- heatmap_data %>%
+  pivot_wider(names_from = SV_Length_Overlap, values_from = AveGerpScore)
+
+# Create a heatmap
+ggplot(data = heatmap_data_pivot, aes(x = factor(SV_Length_Overlap), y = factor(SVLengthBin), fill = AveGerpScore)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "SV Length and Overlap", y = "SV Length Bin", fill = "AveGerpScore") +
+  ggtitle("Heatmap of AveGerpScore by SV Length and Overlap") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```

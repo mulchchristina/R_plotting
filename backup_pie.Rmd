@@ -1,0 +1,826 @@
+---
+title: "BackUp_new VCF Plots"
+author: "mulchc"
+date: "2024-03-07"
+output: html_document
+---
+
+---
+title: "PB_extras_Feb9thVCF"
+author: "mulchc"
+date: "2024-02-15"
+output: html_document
+---
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+install.packages("rcartocolor")
+library(rcartocolor) 
+nColor <- 12 
+scales::show_col(carto_pal(nColor, "Safe")) 
+colorblind <- carto_pal(nColor, "Safe")
+
+```
+
+```{r}
+
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+setwd("/Users/mulch/Documents/R_working_directory")
+
+
+```
+
+```{r}
+svData <- read.table('svData.table.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+
+```
+Header is for svData CHROM   POS     END     SV_ID      REF     ALT     SVTYPE  AF      NCALLED ME      SVLEN   OG      VE      ExHet   FILTER
+
+```{r}
+# Histogram of Allele Frequency (AF)
+ggplot(svData, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "darkblue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+# Density plot of AF
+ggplot(svData, aes(x = AF)) +
+  geom_density(fill = "darkblue") +
+  labs(title = "Density Plot of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+
+```
+```{r}
+# Filter the data for rows where OverlapsGene is true
+OG_only <- svData[svData$OverlapsGene == TRUE, ]
+
+ ggplot(OG_only, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "darkblue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF) where OverlapsGene is TRUE", x = "AF") +
+  theme_minimal()
+
+ggplot(OG_only, aes(x = AF)) +
+  geom_density(fill = "darkblue") +
+  labs(title = "Density Plot of Allele Frequency (AF) where OverlapsGene is TRUE", x = "AF") +
+  theme_minimal()
+
+ggplot(OG_only, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "darkblue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF) where OverlapsGene is TRUE", x = "AF") +
+  theme_minimal() +
+  facet_wrap(~ SVTYPE)
+
+ggplot(OG_only, aes(x = AF)) +
+  geom_density(fill = "darkblue") +
+  labs(title = "Density Plot of Allele Frequency (AF) where OverlapsGene is TRUE", x = "AF") +
+  theme_minimal() +
+  facet_wrap(~ SVTYPE)
+
+ggplot(svData, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "darkblue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF) by Genen Overlap", x = "AF") +
+  theme_minimal() +
+  facet_wrap(~ OverlapsGene)
+
+ggplot(svData, aes(x = AF)) +
+  geom_density(fill = "darkblue") +
+  labs(title = "Density Plot of Allele Frequency (AF) by Gene Overlap", x = "AF") +
+  theme_minimal() +
+  facet_wrap(~ OverlapsGene)
+
+
+```
+
+```{r}
+# Create bins 
+bins <- cut(svData$AF, 
+            breaks = c(0, 0.15, 0.33, 0.9, 1), 
+            labels = c("Ultra Rare", "Rare", "Common", "AF=1"),
+            include.lowest = TRUE)
+
+# Add bin column to data frame
+svData$AF_Bin <- bins
+
+# SVTYPE and AF bin
+ggplot(svData, aes(x = SVTYPE, fill = AF_Bin)) +
+  geom_bar(position = "dodge") +
+  labs(x = "SVTYPE", y = "Count", fill = "AF Bin", 
+       title = "Stratified Count of SVTYPE by AF Bin") +
+  scale_fill_manual(
+    values = c("Ultra Rare" = "blue", "Rare" = "darkolivegreen", 
+               "Common" = "orange", "AF=1" = "red"),  
+    labels = c("Ultra Rare", "Rare", "Common", "AF=1")  
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Create some simplified columns to make plotting easier:
+svData$OverlapsGene <- !is.na(svData$OG)
+
+ggplot(svData %>% group_by(SVTYPE, OverlapsGene) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = OverlapsGene, y = Total)) +
+  geom_col(color = 'black') +
+  scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12)
+
+
+gene_summary <- svData %>%
+  group_by(SVTYPE, OverlapsGene) %>%
+  summarise(Total = n()) %>%
+  ungroup() %>%
+  mutate(Fraction = Total / sum(Total))  # Calculate fraction of total rows
+
+#  fraction
+ggplot(gene_summary, aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), y = Fraction, fill = OverlapsGene)) +
+  geom_col(color = 'black') +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.05))) +  # Convert y-axis to percentage
+  labs(y = "Fraction of Total SVs") +  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Limit to overlapping genes:
+toPlot <- svData %>%
+  filter(OverlapsGene) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT) %>% 
+  summarise(Total = n())
+
+toPlot$IMPACT[is.na(toPlot$IMPACT)] <- 'MODIFIER'
+print(sum(toPlot$Total))
+
+ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  labs(x = 'SV Type') +
+  egg::theme_article(base_size = 12) +
+  ggtitle('Impact on Protein Coding')
+
+toPlot <- toPlot %>%
+  filter(IMPACT != 'MODIFIER') %>%
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = sum(Total))
+
+print(sum(toPlot$Total))
+ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type') +
+  ggtitle('Impact on Protein Coding')
+
+```
+
+
+
+
+
+
+#exploring svData in a few different ways
+```{r}
+####some AF plots?????
+#different types of plots besides bar plots
+# Histogram of Allele Frequency (AF)
+ggplot(svData, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "blue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+# Density plot of AF
+ggplot(svData, aes(x = AF)) +
+  geom_density(fill = "blue") +
+  labs(title = "Density Plot of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+# Histogram of AF for different SVTYPE categories
+ggplot(svData, aes(x = AF, fill = SVTYPE)) +
+  geom_histogram(binwidth = 0.01, color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF) by SVTYPE", x = "AF") +
+  theme_minimal()
+
+
+
+# Box plot of AF by SVTYPE
+ggplot(svData, aes(x = SVTYPE, y = AF)) +
+  geom_boxplot(fill = "blue", color = "black") +
+  labs(title = "Box Plot of Allele Frequency (AF) by SVTYPE", x = "SVTYPE", y = "AF") +
+  theme_minimal()
+
+
+# Bar chart of SVTYPE categories
+ggplot(svData, aes(x = SVTYPE)) +
+  geom_bar(fill = "blue") +
+  labs(title = "Frequency of SVTYPE Categories", x = "SVTYPE", y = "Frequency") +
+  theme_minimal()
+
+
+```
+Try to update the pie chart for VE
+
+```{r}
+ve_counts <- table(svData$VE)
+
+# Sort the counts in descending order
+sorted_ve_counts <- sort(ve_counts, decreasing = TRUE)
+
+
+for (value in names(sorted_ve_counts)) {
+  cat(value, ": ", sorted_ve_counts[value], "\n")
+}
+
+ve_counts <- table(svData$VE)
+
+# Create a data frame to store VE and Category counts
+ve_category_counts <- data.frame(VE = names(ve_counts), Count = as.numeric(ve_counts))
+
+# Add the Category column to the data frame
+ve_category_counts$Category <- svData$Category[match(ve_category_counts$VE, names(ve_counts))]
+
+# VE counts, Category
+print(ve_category_counts)
+```
+
+```{r}
+library(writexl)
+
+# Define the file path
+excel_VEcounts <- "ve_to_category_counts.xlsx"
+
+# Write the data frame to an Excel file
+write_xlsx(ve_category_counts, excel_VEcounts)
+
+
+```
+
+```{r}
+
+
+```
+
+
+
+
+svData <- svData %>%
+  mutate(Category = case_when(
+    VE %in% c('missense_variant', 'synonymous_variant', 'stop_lost', 'stop_retained_variant', 'stop_gained', 'initiator_codon_variant', 'start_lost', 'non_canonical_start_codon', 'exon_loss_variant', 'frameshift_variant', 'conservative_inframe_insertion', 'disruptive_inframe_insertion', 'conservative_inframe_deletion', 'disruptive_inframe_deletion', 'exon_region', 'frameshift_variant', 'frameshift_variant&stop_gained', 'frameshift_variant&stop_lost', 'start_lost&conservative_inframe_deletion', 'disruptive_inframe_deletion', 'start_lost&conservative_inframe_deletion') ~ 'Exonic',
+    grepl("downstream", VE) ~ 'Downstream Gene', 
+    grepl("upstream", VE) ~ 'Upstream Gene',     
+    VE %in% c('intron_variant', 'splice_acceptor_variant', 'splice_region_variant', 'splice_donor_variant', 'intragenic_variant', 'non_coding_transcript_variant', 'non_coding_transcript_exon_variant', '3_prime_UTR_variant', '5_prime_UTR_premature_start_codon_gain_variant', '5_prime_UTR_variant') ~ 'Intronic/Non-coding',
+    VE %in% c('intergenic_region') ~ 'Intergenic',
+    TRUE ~ 'Other'  
+  ))
+
+
+```{r}
+###change logic to deal with | in lists
+svData <- svData %>%
+  mutate(Category = case_when(
+    grepl('\\bmissense_variant\\b|\\bsynonymous_variant\\b|\\bstop_lost\\b|\\bstop_retained_variant\\b|\\bstop_gained\\b|\\binitiator_codon_variant\\b|\\bstart_lost\\b|\\bnon_canonical_start_codon\\b|\\bexon_loss_variant\\b|\\bframeshift_variant\\b|\\bconservative_inframe_insertion\\b|\\bdisruptive_inframe_insertion\\b|\\bconservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bexon_region\\b|\\bframeshift_variant&stop_gained\\b|\\bframeshift_variant&stop_lost\\b|\\bstart_lost&conservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bstart_lost&conservative_inframe_deletion\\b|\\bexon_loss_variant\\b|\\btranscript_ablation\\b|\\bgene_fusion\\b', VE) ~ 'Exonic',
+    grepl('\\bdownstream_gene_variant\\b', VE) ~ 'Downstream Gene', 
+    grepl('\\bupstream_gene_variant\\b', VE) ~ 'Upstream Gene',     
+    grepl('\\bintron_variant\\b|\\bsplice_acceptor_variant\\b|\\bsplice_region_variant\\b|\\bsplice_donor_variant\\b|\\bintragenic_variant\\b|\\bnon_coding_transcript_variant\\b|\\bnon_coding_transcript_exon_variant\\b|\\b3_prime_UTR_variant\\b|\\b5_prime_UTR_premature_start_codon_gain_variant\\b|\\b5_prime_UTR_variant\\b', VE) ~ 'Intronic/Non-coding',
+    grepl('\\bintergenic_region\\b', VE) ~ 'Intergenic',
+    TRUE ~ 'Other'  
+  ))
+
+
+#table for cats
+category_counts <- table(svData$Category)
+
+category_counts_df <- data.frame(Category = names(category_counts), Count = as.numeric(category_counts))
+
+#count by cat
+category_counts_df <- svData %>%
+  count(Category) %>%
+  filter(Category %in% c("Intergenic", "Exonic", "Intronic/Non-coding", "Upstream Gene", "Downstream Gene"))
+
+category_proportions <- svData %>%
+  count(Category) %>%
+  filter(Category %in% c("Intergenic", "Exonic", "Intronic/Non-coding", "Upstream Gene", "Downstream Gene")) %>%
+  mutate(proportion = n / sum(n))
+
+category_proportions <- svData %>%
+  count(Category) %>%
+  mutate(proportion = n / sum(n))
+
+```
+
+```{r}
+# Plotting the pie chart with ggplot2
+pie_chart <- ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category, label = paste(Category, scales::percent(proportion)))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(position = position_stack(vjust = 0.5)) +  # Add labels with percentages
+  coord_polar("y", start = 0) +
+  theme_minimal() +
+  theme(legend.position = "right") +  # Position legend on the right
+  labs(title = "Distribution of SVs by Category", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category and Proportion", nrow = 2))  # Adjust nrow for layout
+
+print(pie_chart)
+
+# Plotting the pie chart with ggplot2
+ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  theme_minimal() +
+  theme(legend.position = "right") +  # Position legend on the right
+  labs(title = "Distribution of SVs by Category", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category and Proportion", nrow = 2))  # Adjust nrow for layout
+
+
+ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category, label = paste(Category, scales::percent(proportion)))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(position = position_stack(vjust = 0.5)) +  # Add labels with percentages
+  coord_polar("y", start = 0) +
+  theme_minimal() +
+  theme(legend.position = "right") +  # Position legend on the right
+  labs(title = "Distribution of SVs by Category", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category and Proportion", nrow = 2))  # Adjust nrow for layout
+
+ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  # Add labels with percentages only
+  coord_polar("y", start = 0) +
+  theme_minimal() +
+  theme(legend.position = "right") +  # Position legend on the right
+  labs(title = "Distribution of SVs by Category", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category and Proportion", nrow = 2)) +  # Adjust nrow for layout
+  theme(legend.text = element_text(hjust = 0),  # Adjust legend text alignment
+        legend.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pie_chart <- ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  # Add labels with percentages only
+  coord_polar("y", start = 0) +
+  theme_minimal() +
+  theme(legend.position = "right") + 
+  labs(title = "Distribution of SVs by Category", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category and Proportion", nrow = 6, ncol = 1)) +  
+  theme(legend.text = element_text(hjust = 0), 
+        legend.title = element_text(hjust = 0.5))  
+
+print(pie_chart)
+
+```
+```{r}
+
+pie_chart_PacBio <- ggplot(data = category_proportions, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  
+  coord_polar(theta = "y") +  
+  theme_void() +
+  labs(title = "Distribution of SNVs by\nCategory mGap Data", fill = "Category", y = "Proportion of Total Variants") +
+  scale_fill_manual(values = rainbow(length(category_proportions$Category))) +
+  guides(fill = guide_legend(title = "Category", nrow = 6, ncol = 1)) +  
+  theme(legend.text = element_text(hjust = 0), 
+        legend.title = element_text(hjust = 0.5))  
+
+print(pie_chart_PacBio)
+
+```
+
+Closest Exon plot
+```{r}
+
+#closest_exon_output <- read.table('closest_exon_output.bed', header = F)
+closest_exon_output <- read.delim("~/Documents/R_working_directory/closest_exon_output.bed", header=FALSE)
+# Add headers to the dataframe
+colnames(closest_exon_output) <- c("Chrom_SV", "Start_SV", "End_SV", "SV_ID", 
+                                   "Chrom_Exon", "Start_Exon", "End_Exon", "Exon_Name", "Distance")
+```
+
+```{r}
+# Merge with svData by SV_ID
+closest_exon_svData <- merge(svData, closest_exon_output, by = "SV_ID")
+
+# Check the structure of merged_data
+#str(closest_exon_svData)
+
+#make bins
+closest_exon_svData$Distance_Bin <- cut(closest_exon_svData$Distance, 
+                                 breaks = c(-Inf, 1, 100, 500, Inf), 
+                                 labels = c("Overlaping","Near(1-100)", "Medium(100-500)", "Far(<500)"))
+
+```
+
+```{r}
+# Make more bins to match fig4 A
+closest_exon_svData$Distance_Bin <- cut(closest_exon_svData$Distance, 
+                                         breaks = c(-Inf, 1, 500, 1000, 5000, 10000, 100000, Inf), 
+                                         labels = c("Overlapping","1-500 bp", "501 bp - 1 kb", "1 kb - 5 kb", 
+                                                    "5 kb - 10 kb", "10 kb - 100 kb", "100 kb and higher"))
+
+```
+
+
+```{r}
+closest_exon_svData$OverlapsGene <- !is.na(closest_exon_svData$OG)
+
+closest_exon_svData$AF_bins <- cut(closest_exon_svData$AF, 
+            breaks = c(0, 0.15, 0.33, 0.9, 1), 
+            labels = c("Ultra Rare(>.15)", "Rare(.15 to .33)", "Common(.33 to .9) ", "AF=1"),
+            include.lowest = TRUE)
+
+#summary to speed plotting?
+summary_closest_exon <- closest_exon_svData %>%
+  group_by(Distance_Bin, OverlapsGene, SVTYPE, AF_bins) %>%
+  summarise(count = n_distinct(SV_ID))
+
+```
+
+```{r}
+
+# Calculate total count for each SVTYPE
+total_counts <- closest_exon_svData %>%
+  group_by(SVTYPE) %>%
+  summarise(total_count = n_distinct(SV_ID))
+
+
+# Calculate fraction of total SVs
+summary_closest_exon_frac <- summary_closest_exon %>%
+  left_join(total_counts, by = "SVTYPE") %>%
+  mutate(fraction = count / total_count)
+
+# Plot
+ggplot(summary_closest_exon_frac, aes(x = Distance_Bin, y = fraction, fill = OverlapsGene)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ SVTYPE) +
+  labs(title = "Fraction of Total SVs by Distance Bin, OG, and SVTYPE", 
+       x = "Distance Bin", y = "Fraction of Total SVs", fill = "OG") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+ # Plot
+ggplot(summary_closest_exon_frac, aes(x = Distance_Bin, y = fraction, fill = OverlapsGene)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ AF_bins) +
+  labs(title = "Fraction of Total SVs by Distance Bin, OG, and AF", 
+       x = "Distance Bin", y = "Fraction of Total SVs", fill = "OG") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+```
+
+
+```{r}
+
+ggplot(summary_closest_exon, aes(x = Distance_Bin, y = count, fill = OverlapsGene)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ SVTYPE) +
+  labs(title = "Counts of SV_ID by Distance Bin, OG, and SVTYPE", 
+       x = "Distance Bin", y = "Count", fill = "OG") +
+  theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+```{r}
+#summary plot
+closestExon <- ggplot(summary_closest_exon_frac, aes(x = Distance_Bin, y = fraction, fill = AF_bins)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ SVTYPE) +
+  labs(title = "Fraction of SVs Distance Bin, AF, and SVTYPE", 
+       x = "Exon Disctance", y = "Fraction of SVs", fill = "AF") +
+  theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+closestExon
+
+closestExon <- ggplot(summary_closest_exon_frac, aes(x = Distance_Bin, y = fraction, fill = AF_bins)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  facet_wrap(~ SVTYPE ~ .) +
+  labs(title = "SV distance to nearest Exon, AF, and SVTYPE", 
+       x = "Distance Bin", y = "Fraction of SVs", fill = "AF") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+closestExon
+
+ggplot(summary_closest_exon_frac, aes(x = Distance_Bin, y = fraction, fill = AF_bins)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Fraction of SVs by Distance Bin and AF", 
+       x = "Distance Bin", y = "Fraction of SVs", fill = "AF") +
+  theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+closestExon <- ggplot(summary_closest_exon, aes(x = Distance_Bin, y = count, fill = AF_bins)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  facet_grid(SVTYPE ~ .) +  
+  labs(title = "Counts of SV_ID by Distance Bin, AF, and SVTYPE", 
+       x = "Distance Bin", y = "Count", fill = "AF") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+closestExon
+```
+
+```{r}
+#plots
+ggplot(closest_exon_svData, aes(x = Distance)) +
+  geom_density(binwidth = 10000) +  # Adjust binwidth as needed
+  facet_grid(SVTYPE ~ OverlapsGene) +
+  labs(title = "Distribution of Distance by SVTYPE and OG",
+       x = "Distance", y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(closest_exon_svData, aes(x = Distance_Bin, fill = OverlapsGene)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Counts of SV_ID by Distance Bin, OG, and SVTYPE", 
+       x = "Distance Bin", y = "Count", fill = "OG") +
+  facet_wrap(~ SVTYPE) +
+  theme_minimal()
+
+ggplot(closest_exon_svData, aes(x = SVTYPE, fill = AF_bins)) +
+  geom_bar(position = "dodge") +
+  labs(title = "SVTYPE Distribution by OG", x = "SVTYPE", y = "Count", fill = "AF_bins") +
+  theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+
+```{r}
+# unique SV_ID rows in each Distance_Bin
+ggplot(closest_exon_svData, aes(x = Distance_Bin, fill = OverlapsGene)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Counts of SV_ID by Distance Bin and OG", 
+       x = "Distance Bin", y = "Count", fill = "OG") +
+  theme_minimal()
+
+```
+
+----
+
+# This should summarize by effect type:
+
+```{r}
+# Define severe effects and pattern
+SEVERE_EFFECTS <- c('exon_loss_variant', 'stop_lost', 'disruptive_inframe_deletion', 'frameshift_variant', 'stop_gained', 'transcript_ablation', 'bidirectional_gene_fusion', 'gene_fusion', 'disruptive_inframe_deletion', 'disruptive_inframe_insertion', 'splice_donor_variant', 'start_lost', 'splice_acceptor_variant')
+SEVERE_EFFECTS_PATTERN <- paste0(SEVERE_EFFECTS, collapse = '|')
+
+# Define function to simplify variant effect
+simplifyVE <- function(toPlot) {
+  toPlot$VE_Simplified <- sapply(toPlot$VE, function(x){
+    x <- unlist(strsplit(x, split = '|', fixed = TRUE))
+    if (any(grepl(x = x, pattern = SEVERE_EFFECTS_PATTERN))){
+      return('Severe Coding Defect')
+    }
+    
+    if (length(x) == 1) {
+      return(x[1])
+    }
+    
+    x <- x[x != 'intergenic_region']
+    
+    if (length(intersect(x, SEVERE_EFFECTS)) > 0) {
+      return('Severe Coding Defect')
+    }
+    
+    if (any(grepl(x = x, pattern = paste0(SEVERE_EFFECTS, collapse = '|')))){
+      print(x)      
+      return('Severe Coding Defect')
+    }
+    
+    return(paste0(x, collapse = '|'))
+  })
+  
+  return(toPlot)
+}
+
+# Apply the function to svData
+svData <- simplifyVE(svData)
+
+
+```
+
+```{r}
+category_counts <- table(svData$VE_Simplified)
+
+# Find the most prevalent category
+most_prevalent_category <- names(category_counts)[which.max(category_counts)]
+
+# Print the most prevalent category
+print(most_prevalent_category)
+
+```
+
+```{r}
+
+
+# NOTE: most of the low frequency categories are HIGH impact.
+toPlot <- simplifyVE(svData) %>% 
+  filter(OverlapsGene) %>% 
+  filter(!is.na(IMPACT)) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT, VE_Simplified) %>% 
+  summarise(Total = n())
+
+x <- toPlot %>% 
+  group_by(VE_Simplified, IMPACT) %>% 
+  summarize(Total = sum(Total)) %>% 
+  arrange(desc(Total))
+
+length(unique(toPlot$VE_Simplified))
+
+P1 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(x = 'SV Type')
+
+P2 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'bottom') +
+  labs(x = 'SV Type') +
+  scale_fill_manual(name = 'VE_Simplified', labels = most_prevalent_category) 
+
+
+combined_plot <- P1 + P2 + ggtitle("Severe Effects of VE col by SVTYPE, 60 PabBio")
+
+combined_plot
+
+```
+
+```{r}
+
+VE_wholeGeneDeletions_mgap <- read.table("VE_RepeatMasked.txt", header = TRUE)
+
+
+# Recategorize based on VE_Category
+VE_wholeGeneDeletions_mgap <- VE_wholeGeneDeletions_mgap %>%
+  mutate(VE_Category = case_when(
+    grepl('\\bmissense_variant\\b|\\bsynonymous_variant\\b|\\bstop_lost\\b|\\bstop_retained_variant\\b|\\bstop_gained\\b|\\binitiator_codon_variant\\b|\\bstart_lost\\b|\\bnon_canonical_start_codon\\b|\\bexon_loss_variant\\b|\\bframeshift_variant\\b|\\bconservative_inframe_insertion\\b|\\bdisruptive_inframe_insertion\\b|\\bconservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bexon_region\\b|\\bframeshift_variant&stop_gained\\b|\\bframeshift_variant&stop_lost\\b|\\bstart_lost&conservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bstart_lost&conservative_inframe_deletion\\b|\\bexon_loss_variant\\b|\\btranscript_ablation\\b|\\bgene_fusion\\b', VE_Category) ~ 'Disruptive Variant',
+        grepl('\\bexon_loss_variant\\b|\\btranscript_ablation\\b', VE_Category) ~ 'Entire Gene Deletion',
+    grepl('\\copy_number_gain\\b\\b|\\tandem_duplication\\b|\\segmental_duplication\\b', VE_Category) ~ 'Entire Gene Duplication',     
+    grepl('\\bintron_variant\\b|\\bsplice_acceptor_variant\\b|\\bsplice_region_variant\\b|\\bsplice_donor_variant\\b|\\bintragenic_variant\\b|\\bnon_coding_transcript_variant\\b|\\bnon_coding_transcript_exon_variant\\b|\\b3_prime_UTR_variant\\b|\\b5_prime_UTR_premature_start_codon_gain_variant\\b|\\b5_prime_UTR_variant\\b\\bdownstream_gene_variant\\b\\bupstream_gene_variant\\b\\bintergenic_region\\b', VE_Category) ~ 'Non Disruptive',
+    TRUE ~ 'Other'  
+  ))
+
+# Sum the counts for each category
+category_counts_WG_mgap <- VE_wholeGeneDeletions_mgap %>%
+  group_by(VE_Category) %>%
+  summarize(Count = sum(count))
+
+# Calculate proportions
+category_proportions_WG_mgap <- category_counts_WG_mgap %>%
+  mutate(proportion = Count / sum(Count))
+
+# Create pie chart
+pie_chart_WG_MGAP <- ggplot(data = category_proportions_WG_mgap, aes(x = "", y = proportion, fill = VE_Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  
+  coord_polar(theta = "y") +  
+  theme_void() +
+  labs( title = "Distribution of SVs by Category\nmGap SNVs\n",fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions_RM$VE_Category))) +
+  guides(fill = guide_legend( nrow = 6, ncol = 1)) +  
+  theme(legend.text = element_text(hjust = 0), 
+        legend.title = element_text(hjust = 0.5))  
+
+print(pie_chart_WG_MGAP)
+
+
+
+
+# Recategorize based on VE_Category
+
+VE_wholeGeneDeletions <- svData %>%
+  mutate(Category = case_when(
+    grepl('\\bmissense_variant\\b|\\bsynonymous_variant\\b|\\bstop_lost\\b|\\bstop_retained_variant\\b|\\bstop_gained\\b|\\binitiator_codon_variant\\b|\\bstart_lost\\b|\\bnon_canonical_start_codon\\b|\\bexon_loss_variant\\b|\\bframeshift_variant\\b|\\bconservative_inframe_insertion\\b|\\bdisruptive_inframe_insertion\\b|\\bconservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bexon_region\\b', VE) ~ 'Disruptive Variant',
+    grepl('\\bexon_loss_variant\\b|\\btranscript_ablation\\b', VE) ~ 'Entire Gene Deletion',
+    grepl('\\bcopy_number_gain\\b|\\btandem_duplication\\b|\\bsegmental_duplication\\b', VE) ~ 'Entire Gene Duplication',     
+    grepl('\\bintron_variant\\b|\\bsplice_acceptor_variant\\b|\\bsplice_region_variant\\b|\\bsplice_donor_variant\\b|\\bintragenic_variant\\b|\\bnon_coding_transcript_variant\\b|\\bnon_coding_transcript_exon_variant\\b|\\b3_prime_UTR_variant\\b|\\b5_prime_UTR_premature_start_codon_gain_variant\\b|\\b5_prime_UTR_variant\\b|\\bdownstream_gene_variant\\b|\\bupstream_gene_variant\\b|\\bintergenic_region\\b', VE) ~ 'Non Disruptive',
+    TRUE ~ 'Other'  
+  ))
+
+# Sum the counts for each category
+category_counts_WG <- VE_wholeGeneDeletions %>%
+  group_by(Category) %>%
+  summarize(Count = sum(Count))
+
+# Calculate proportions
+category_proportions_WG <- category_counts_WG %>%
+  mutate(proportion = Count / sum(Count))
+
+# Create pie chart
+pie_chart_WG <- ggplot(data = category_proportions_WG, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  
+  coord_polar(theta = "y") +  
+  theme_void() +
+  labs( title = "Distribution of SVs by Category\ SVs\n",fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(category_proportions_RM$VE_Category))) +
+  guides(fill = guide_legend( nrow = 6, ncol = 1)) +  
+  theme(legend.text = element_text(hjust = 0), 
+        legend.title = element_text(hjust = 0.5))  
+
+print(pie_chart_WG)
+
+```
+
+```{r}
+library(ggrepel)
+# Recategorize based on VE
+VE_wholeGeneDeletions <- svData %>%
+  mutate(Category = case_when(
+    grepl('\\bmissense_variant\\b|\\bsynonymous_variant\\b|\\bstop_lost\\b|\\bstop_retained_variant\\b|\\bstop_gained\\b|\\binitiator_codon_variant\\b|\\bstart_lost\\b|\\bnon_canonical_start_codon\\b|\\bexon_loss_variant\\b|\\bframeshift_variant\\b|\\bconservative_inframe_insertion\\b|\\bdisruptive_inframe_insertion\\b|\\bconservative_inframe_deletion\\b|\\bdisruptive_inframe_deletion\\b|\\bexon_region\\b', VE) ~ 'Disruptive Variant',
+    grepl('\\bexon_loss_variant\\b|\\btranscript_ablation\\b', VE) ~ 'Entire Gene Deletion',
+    grepl('\\bcopy_number_gain\\b|\\btandem_duplication\\b|\\bsegmental_duplication\\bupstream_gene_variant\\b|\\bgene_fusion\\b', VE) ~ 'Entire Gene Duplication',     
+    grepl('\\bintron_variant\\b|\\bsplice_acceptor_variant\\b|\\bsplice_region_variant\\b|\\bsplice_donor_variant\\b|\\bintragenic_variant\\b|\\bnon_coding_transcript_variant\\b|\\bnon_coding_transcript_exon_variant\\b|\\b3_prime_UTR_variant\\b|\\b5_prime_UTR_premature_start_codon_gain_variant\\b|\\b5_prime_UTR_variant\\b|\\bdownstream_gene_variant\\b|\\bupstream_gene_variant\\b|\\bintergenic_region\\b', VE) ~ 'Non Disruptive',
+    TRUE ~ 'Other'  
+  ))
+
+# Sum the counts for each category
+category_counts_WG <- VE_wholeGeneDeletions %>%
+  group_by(Category) %>%
+  summarize(Count = n()) 
+
+# Calculate proportions
+category_proportions_WG <- category_counts_WG %>%
+  mutate(proportion = Count / sum(Count))
+
+# Create pie chart
+# Create pie chart with ggrepel to avoid overlapping labels
+pie_chart_WG <- ggplot(data = category_proportions_WG, aes(x = "", y = proportion, fill = Category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  geom_text_repel(
+    aes(label = scales::percent(proportion)),
+    size = 3,
+    direction = "both",  
+    box.padding = 0.5  
+  ) +
+  coord_polar(theta = "y") +
+  theme_void() +
+  labs(title = "Distribution of SVs by Category\n", fill = "Category", y = "Proportion of Total SVs") +
+  scale_fill_manual(values = rainbow(length(unique(category_proportions_WG$Category)))) +
+  guides(fill = guide_legend(nrow = 6, ncol = 1)) +
+  theme(legend.text = element_text(hjust = 0),
+        legend.title = element_text(hjust = 0.5))
+
+print(pie_chart_WG)
+
+#print a table of the Entire Gene Deletions
+
+
+```
+
+```{r}
+#other plot
+plot_WG <- ggplot(data = category_proportions_WG, aes(x = "Category", y = proportion, fill = Category)) +
+  geom_density(stat = "identity", width = 1, color = "white") +
+  geom_text(aes(label = scales::percent(proportion)), position = position_stack(vjust = 0.5), size = 3) +  
+  labs(title = "Distribution of SVs by Category\ SVs\n", fill = "Category", y = "Proportion of Total SVs") 
+plot_WG
+
+```
+
+```

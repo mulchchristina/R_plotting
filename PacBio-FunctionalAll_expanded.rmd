@@ -1,0 +1,1388 @@
+---
+title: "PacBIo"
+output: html_document
+date: "2023-10-10"
+---
+
+```{r setup, include=FALSE}
+
+library(dplyr)
+library(Rlabkey)
+library(ggplot2)
+library(patchwork)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+workDir <- "/Users/bimber/Downloads/PacBio"
+if (!dir.exists(workDir)) {
+  dir.create(workDir, recursive = T)
+}
+
+knitr::opts_knit$set(root.dir = workDir)
+labkey.setDefaults(baseUrl = "https://prime-seq.ohsu.edu")
+lkDefaultFolder <- 'Internal/ColonyData'
+Rdiscvr::SetLabKeyDefaults(baseUrl = 'https://prime-seq.ohsu.edu/', defaultFolder = lkDefaultFolder)
+
+
+
+```
+
+header <- c('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', '17128', '17686', '17893', '18200', '18210', '18607', '21742', '22216', '22656', '23001', '23230', '23247', '23985', '25208', '26537', '26733', '26744', '27428', '27429','27685','28721', '30634', '31261', '32904', '34020', '34762', '34764','35719', 'TNPRC-IP72', 'TNPRC-GR91', 'TNPRC-HF97', 'TNPRC-IJ90', 'TNPRC-GH30', 'TNPRC-HR17', 'TNPRC-IB18', 'TNPRC-EP96', 'TNPRC-II50', 'TNPRC-II86', 'TNPRC-HP89', 'TNPRC-DN75', 'TNPRC-FP85', 'TNPRC-HR27', 'TNPRC-FP05', 'TNPRC-GB29')
+colnames(dat) <- header
+
+```{r}
+getwd()
+dat <- read.table('CLR.CCS.merge.tagID.annotated.snpEff.filtered_DISCVRSeq_ann.VTT_notmolten.txt', sep = '\t', header = TRUE)
+                  
+
+dat$INFO.1 <- NULL
+print(nrow(dat))
+
+dat$UniqueKey <- paste0(dat$CHROM, '-', dat$SVTYPE, '-', dat$ID)
+
+
+# Still not unique...
+sum(duplicated(dat$UniqueKey))
+
+# All BNDs are represented 2x:
+dupes <- dat[dat$UniqueKey %in% dat$UniqueKey[duplicated(dat$UniqueKey)],] %>% arrange(UniqueKey)
+
+# Actually make this unique:
+dat <- unique(dat)
+print(nrow(dat))
+
+# Still not unique...
+sum(duplicated(dat$UniqueKey))
+dupes <- dat[dat$UniqueKey %in% dat$UniqueKey[duplicated(dat$UniqueKey)],] %>% arrange(UniqueKey)
+
+# will ignore for now, but need to sort out the original data
+dat <- dat %>%
+  mutate(REFLENGTH = nchar(REF))
+
+
+```
+
+
+# Input for liftOver, which uses our UniqueKey:
+
+```{r}
+dat$CHROM <- naturalsort::naturalfactor(dat$CHROM)
+write.table(dat %>% mutate(START=POS - 1, END = POS+nchar(REF)-1) %>% select(CHROM, START, END, UniqueKey) %>% arrange(CHROM, START), file = 'variantsPreLiftover.bed', sep = '\t', row.names = F, col.names = F, quote = F)
+
+variantsPreLiftover <- read.table('variantsPreLiftover.bed', sep = '\t', header = FALSE)
+colnames(variantsPreLiftover) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey')
+
+
+#export(variantsPreLiftover,"variantsPreLiftover.txt")
+```
+
+
+# Use that for liftOver, get results:lifted using script liftOver_uniqidBED.sh
+#SVTYPE, length, possibly based on AF bins, possibly based on mobile element type
+
+```{r}
+getwd()
+variantsThatLifted <- read.table('variantsPostLiftover.sorted.bed', sep = '\t', header = FALSE)
+colnames(variantsThatLifted) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey')
+
+# Create some simplified columns to make plotting easier:
+dat$VariantLifted <- dat$UniqueKey %in% variantsThatLifted$UniqueKey
+print(length(intersect(dat$UniqueKey, variantsThatLifted$UniqueKey)))
+sum(dat$VariantLifted) / length(dat$VariantLifted)
+
+ggplot(dat %>% group_by(SVTYPE, VariantLifted) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = VariantLifted, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  #scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type', y = 'Fraction of SVs') +
+  ggtitle('Fraction of SVs Lifted to GRCh37')
+
+library(tidyr)
+# numbers for each category FIX THIS FOR DELECTIONS
+dat <- dat %>%
+  mutate(SVLENGTHSUM = sum(abs(SVLEN), na.rm = TRUE))
+
+summary_table <- dat %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarise(Total = n(),
+            REFLENGTH_Total = sum(REFLENGTH),
+            SVLENGTHSUM_Total = sum(SVLENGTHSUM)) %>%
+  pivot_wider(names_from = VariantLifted, values_from = c(Total, REFLENGTH_Total, SVLENGTHSUM_Total), 
+               names_sep = "_") %>%
+  arrange(SVTYPE)
+
+# Print the table
+print(summary_table)
+```
+```{r fig.width=10}
+
+#impact
+#ggplot(dat, aes(x = as.factor(round(IMPACT, 2)), fill = #VariantLifted)) +
+#  geom_bar(color = 'black', position = 'dodge') +
+#  egg::theme_article(base_size = 12) +
+#  labs(x = 'IMPACT', y = '# SVs') +
+#  ggtitle('Impact by VariantLifted')
+
+#AF plots
+ggplot(dat, aes(x = AF, fill = VariantLifted)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'AF', y = 'Density') +
+  ggtitle('Density Plot of AF by VariantLifted')
+
+ggplot(dat, aes(x = as.factor(round(AF, 2)), fill = VariantLifted)) +
+  geom_bar(color = 'black', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'AF', y = '# SVs') +
+  ggtitle('Bar Chart of AF by VariantLifted')
+
+# Calculate the proportions within each category
+dat_proportions <- dat %>%
+  group_by(as.factor(AF, VariantLifted)) %>%
+  summarise(Proportion = n() / nrow(dat))
+
+# Create a bar chart with proportions
+ggplot(dat_proportions, aes(x = as.factor(round(AF, 2)), y = Proportion, fill = VariantLifted)) +
+  geom_bar(stat = 'identity', position = 'dodge', color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'AF', y = 'Proportion of SVs') +
+  ggtitle('Bar Chart of AF by VariantLifted')
+```
+
+```{r fig.width=10}
+
+
+ggplot(dat, aes(x = abs(SVLEN), fill = VariantLifted, color = VariantLifted)) +
+  geom_density(alpha = 0.5) +
+  egg::theme_article(base_size = 12) +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'SV Length (abs)', y = 'Fraction of SVs') +
+  scale_x_continuous(trans = 'log10') +
+  ggtitle('Fraction of SVs Lifted to GRCh37')
+
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Replace NA values in SV_Length_Bin with "BND" for SVTYPE equal to "BND"#
+#dat$SV_Length_Bin[is.na(dat$SV_Length_Bin) & dat$SVTYPE == "BND"] <- "BND"
+
+# Create a bar chart with the binned data
+ggplot(dat, aes(x = SV_Length_Bin, fill = VariantLifted)) +
+  geom_bar(color = 'black', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'SV Length Bin', y = 'Count of SVs') +
+  ggtitle('Distribution of SVs by SV Length Bin')
+
+#DO this for REF Length
+dat$REFLENGTH <- nchar(dat$REF)
+# Create a new column for bin labels
+dat$REF_Length_Bin <- cut(abs(dat$REFLENGTH), breaks = breaks, labels = tags)
+
+
+# bar chart with the binned data
+ggplot(dat, aes(x = REF_Length_Bin, fill = VariantLifted)) +
+  geom_bar(color = 'black', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'REF Length', y = 'Count of SVs') +
+  ggtitle('Distribution of SVs by REF Length Bin')
+
+#And then we need similar totals for the inputs:
+#For all SVs, list the number of SVs and sum of REFLENGTH
+#For just the SVs that listed, same thing
+#Per ERB type, the total # of features and sum of REFLENGTH
+#For each of these, compute this as "percent of genome", meaning sum(REFLENGTH)/genomeSize
+
+# Define genome sizes
+genome_size_hg19 <- 3101788170
+genome_size_mmul10 <- 2971314966
+
+```
+```{r}
+# Define genome sizes
+genome_size_hg19 <- 3101788170
+genome_size_mmul10 <- 2971314966
+
+# Compute "percent of genome" for SVs and REF Length
+percent_genome_sv <- dat %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarize(PercentGenome = sum(REFLENGTH) / genome_size_hg19, .groups = 'drop')
+
+percent_genome_sv_mmul10 <- dat %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarize(PercentGenome = sum(REFLENGTH) / genome_size_mmul10, .groups = 'drop')
+
+# proportions of genome size for SVs
+ggplot(percent_genome_sv, aes(x = SVTYPE, y = PercentGenome, fill = VariantLifted)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_grid(. ~ VariantLifted, scales = 'free') +
+  labs(x = 'SVTYPE', y = 'Percent of Genome') +
+  ggtitle('Percent of Genome for SVs (Hg19)')
+
+#  proportions of genome size for SVs in MMul10
+ggplot(percent_genome_sv_mmul10, aes(x = SVTYPE, y = PercentGenome, fill = VariantLifted)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_grid(. ~ VariantLifted, scales = 'free') +
+  labs(x = 'SVTYPE', y = 'Percent of Genome') +
+  ggtitle('Percent of Genome for SVs (MMul10)')
+
+# Compute "percent of total REF length" for SVs
+percent_ref_length_sv <- dat %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarize(PercentRefLength = sum(REFLENGTH) / sum(dat$REFLENGTH), .groups = 'drop')
+
+# Create a stacked bar chart with percentages of total REF length for SVs
+ggplot(percent_ref_length_sv, aes(x = SVTYPE, y = PercentRefLength, fill = VariantLifted)) +
+  geom_bar(stat = 'identity') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SVTYPE', y = 'Percent of Total REF Length') +
+  ggtitle('Percent of Total REF Length for SVs')
+
+# Compute "percent of total REF length" for SVs
+percent_ref_length_sv <- dat %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarize(PercentRefLength = sum(REFLENGTH) / sum(dat$REFLENGTH), .groups = 'drop')
+
+# Create a stacked bar chart with percentages of total REF length for SVs
+ggplot(percent_ref_length_sv, aes(x = SVTYPE, y = PercentRefLength, fill = VariantLifted)) +
+  geom_bar(stat = 'identity') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SVTYPE', y = 'Percent of Total REF Length') +
+  ggtitle('Percent of Total REF Length for SVs') +
+  scale_y_log10()
+
+#Per ERB type, the total # of features and sum of REFLENGTH
+#For each of these, compute this as "percent of genome", meaning sum(REFLENGTH)/genomeSize
+
+# Define genome sizes
+genome_size_hg19 <- 3101788170
+genome_size_mmul10 <- 2971314966
+
+
+```
+
+
+```{r}
+# Define genome sizes
+genome_size_hg19 <- 3101788170
+genome_size_mmul10 <- 2971314966
+
+#merge with dat
+dat_erbData <- merge(dat2, erbData, by = "UniqueKey", all.x = TRUE, all.y = TRUE)
+
+#DO this for REF Length
+dat_erbData$REFLENGTH <- nchar(dat_erbData$REF)
+# Create a new column for bin labels
+dat_erbData$REF_Length_Bin <- cut(abs(dat_erbData$REFLENGTH), breaks = breaks, labels = tags)
+
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat_erbData2 %>%
+  group_by(SVTYPE.x, ERB_Type.x) %>%
+  summarize(Count = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Count / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Count / genome_size_mmul10) * 100)
+
+# Filter out rows with NA in ERB_Type
+counts_ref_length_erb_type_filtered <- counts_ref_length_erb_type %>%
+  filter(!is.na(ERB_Type.x))
+
+# Create a bar plot of REFLENGTH per ERB_Type facet wrapped by SVTYPE (excluding NA)
+ggplot(counts_ref_length_erb_type_filtered, aes(x = ERB_Type.x, y = Count, fill = SVTYPE.x)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE.x ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+
+
+# Print the sum of REFLENGTH and percent of genome for each ERB Type and SVTYPE
+print(counts_ref_length_erb_type_filtered)
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarize(Count = sum(REFLENGTH), REFLENGTH = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Count / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Count / genome_size_mmul10) * 100)
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarize(Count = n(), Total_REFLENGTH = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Total_REFLENGTH / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Total_REFLENGTH / genome_size_mmul10) * 100)
+
+# Filter out rows with NA in ERB_Type
+counts_ref_length_erb_type_filtered <- counts_ref_length_erb_type %>%
+  filter(!is.na(ERB_Type))
+
+# Calculate totals
+totals <- counts_ref_length_erb_type_filtered %>%
+  group_by(ERB_Type) %>%
+  summarize(Count = sum(Count), Total_REFLENGTH = sum(Total_REFLENGTH), .groups = 'drop') %>%
+  mutate(SVTYPE = "Total")
+
+# Add totals to the table
+counts_ref_length_erb_type_filtered_with_totals <- counts_ref_length_erb_type_filtered %>%
+  bind_rows(totals)
+
+# Create a bar plot of Total_REFLENGTH per ERB_Type facet wrapped by SVTYPE (excluding NA)
+ggplot(counts_ref_length_erb_type_filtered_with_totals, aes(x = ERB_Type, y = Total_REFLENGTH, fill = SVTYPE)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+
+# Print the table with totals
+print(counts_ref_length_erb_type_filtered_with_totals)
+```
+
+```{r}
+
+erbData$ERB_Length <- erbData$ERB_End - erbData$ERB_Start + 1
+erbData <- merge(erbData, dat[c('UniqueKey', 'SVLEN')], by = 'UniqueKey', all.x = T, all.y = F)
+erbData$EffectiveOverlap <- erbData$ERB_Overlap
+erbData$EffectiveOverlap[grepl(erbData$UniqueKey, pattern = 'INS')] <- erbData$SVLEN[grepl(erbData$UniqueKey, pattern = 'INS')]
+erbData$ERB_Overlap_Pct <- erbData$EffectiveOverlap / erbData$ERB_Length
+
+# Add columns for uniqueSVs, uniqueFeatures, and LengthOverlap
+#erbData$uniqueSVs <- ifelse(grepl("SV", erbData$UniqueKey), 1, 0)
+#erbData$uniqueFeatures <- ifelse(grepl("enhancer|promoter", erbData$ERB_Type), 1, 0)
+#erbData$LengthOverlap <- ifelse(grepl("INS", erbData$UniqueKey), erbData$SVLEN, erbData$ERB_Length)
+
+# Print the updated erbData
+print(erbData)
+```
+
+
+```{r}
+
+#with the ids attached 
+erbData2 <- read.table('variantsPostLiftover.sorted_intersect_ERB_ids.txt', sep = '\t', header = FALSE)
+colnames(erbData2) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'ERB_Contig', 'ERB_Start', 'ERB_End', 'ERB_Type', 'ERB_ID', 'ERB_Overlap')
+erbData2$ERB_Length <- erbData2$ERB_End - erbData2$ERB_Start + 1
+erbData2$ERB_Overlap_Pct <- erbData2$ERB_Overlap / erbData2$ERB_Length
+
+#merge with suffixes for duplicate columns
+erbData2 <- merge(erbData2, dat[c('UniqueKey', 'SVTYPE', 'SVLEN', 'SVLENGTHSUM')], by = 'UniqueKey', all.x = TRUE, all.y = FALSE, suffixes = c('_erbData', '_dat'))
+erbData2$EffectiveOverlap <- erbData2$ERB_Overlap
+#erbData2$EffectiveOverlap[grepl('INS', erbData2$UniqueKey)] <- erbData2$SVLEN_dat[grepl('INS', erbData2$UniqueKey)]
+erbData2$ERB_Overlap_Pct <- erbData2$EffectiveOverlap / erbData2$ERB_Length
+print(erbData2)
+
+summary_table_erb2 <- erbData2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarise(
+    Count = n(),                        
+    `# Unique SVs` = n_distinct(UniqueKey),                 
+    `# Unique Features` = n_distinct(ERB_Overlap),           
+    `Total BP of Overlap` = sum(ERB_Overlap),   
+    `Total_SVLENGTH` = sum(SVLENGTHSUM),
+    `# Unique ERB_IDs` = n_distinct(ERB_ID)
+  )
+
+# Print the summary table
+print(summary_table_erb2)
+
+
+```
+
+```{r}
+#ERBDATA2
+# Define genome sizes
+genome_size_hg19 <- 3101788170
+genome_size_mmul10 <- 2971314966
+
+#merge with dat
+dat_erbData2 <- merge(dat2, erbData2, by = "UniqueKey", all.x = TRUE, all.y = TRUE)
+
+#DO this for REF Length
+dat_erbData2$REFLENGTH <- nchar(dat_erbData2$REF)
+# Create a new column for bin labels
+dat_erbData2$REF_Length_Bin <- cut(abs(dat_erbData2$REFLENGTH), breaks = breaks, labels = tags)
+
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat_erbData2 %>%
+  group_by(SVTYPE, ERB_Type.x) %>%
+  summarize(Count = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Count / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Count / genome_size_mmul10) * 100)
+
+# Filter out rows with NA in ERB_Type
+counts_ref_length_erb_type_filtered <- counts_ref_length_erb_type %>%
+  filter(!is.na(ERB_Type.x))
+
+# Create a bar plot of REFLENGTH per ERB_Type facet wrapped by SVTYPE (excluding NA)
+ggplot(counts_ref_length_erb_type_filtered, aes(x = ERB_Type.x, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+
+
+# Print the sum of REFLENGTH and percent of genome for each ERB Type and SVTYPE
+print(counts_ref_length_erb_type_filtered)
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarize(Count = sum(REFLENGTH), REFLENGTH = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Count / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Count / genome_size_mmul10) * 100)
+
+# Group by ERB_Type and SVTYPE, calculate the sum of REFLENGTH, and the percent of genome
+counts_ref_length_erb_type <- dat2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarize(Count = n(), Total_REFLENGTH = sum(REFLENGTH), .groups = 'drop') %>%
+  mutate(PercentOfGenome_hg19 = (Total_REFLENGTH / genome_size_hg19) * 100,
+         PercentOfGenome_mmul10 = (Total_REFLENGTH / genome_size_mmul10) * 100)
+
+# Filter out rows with NA in ERB_Type
+counts_ref_length_erb_type_filtered <- counts_ref_length_erb_type %>%
+  filter(!is.na(ERB_Type))
+
+# Calculate totals
+totals <- counts_ref_length_erb_type_filtered %>%
+  group_by(ERB_Type) %>%
+  summarize(Count = sum(Count), Total_REFLENGTH = sum(Total_REFLENGTH), .groups = 'drop') %>%
+  mutate(SVTYPE = "Total")
+
+# Add totals to the table
+counts_ref_length_erb_type_filtered_with_totals <- counts_ref_length_erb_type_filtered %>%
+  bind_rows(totals)
+
+# Create a bar plot of Total_REFLENGTH per ERB_Type facet wrapped by SVTYPE (excluding NA)
+ggplot(counts_ref_length_erb_type_filtered_with_totals, aes(x = ERB_Type, y = Total_REFLENGTH, fill = SVTYPE)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+
+# Print the table with totals
+print(counts_ref_length_erb_type_filtered_with_totals)
+
+```
+
+
+```{r}
+#DO this for REF Length
+dat2$REFLENGTH <- nchar(dat2$REF)
+# Create a new column for bin labels
+dat2$REF_Length_Bin <- cut(abs(dat2$REFLENGTH), breaks = breaks, labels = tags)
+
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Replace NA values in SV_Length_Bin with "BND" for SVTYPE equal to "BND"
+#dat2$SV_Length_Bin[is.na(dat2$SV_Length_Bin) & dat2$SVTYPE == "BND"] <- "BND"
+
+# Compute "percent of total REF length" for SVs in dat2
+percent_ref_length_sv_dat2 <- dat2 %>%
+  group_by(SVTYPE, VariantLifted) %>%
+  summarize(PercentRefLength = sum(REFLENGTH) / sum(dat2$REFLENGTH), .groups = 'drop')
+
+# Create a stacked bar chart with percentages of total REF length for SVs in dat2
+ggplot(percent_ref_length_sv_dat2, aes(x = SVTYPE, y = PercentRefLength, fill = VariantLifted)) +
+  geom_bar(stat = 'identity') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SVTYPE', y = 'Percent of Total REF Length') +
+  ggtitle('Percent of Total REF Length for SVs in dat2') +
+  scale_y_log10()
+
+# Compute the total REFLENGTH per ERB_Type and ERB_Overlap in dat2
+total_ref_length_erb_type <- dat2 %>%
+  group_by(ERB_Type) %>%
+  summarize(TotalRefLength = sum(REFLENGTH), .groups = 'drop')
+
+total_ref_length_erb_overlap <- dat2 %>%
+  group_by(ERB_Overlap) %>%
+  summarize(TotalRefLength = sum(REFLENGTH), .groups = 'drop')
+
+# Create bar charts for total REFLENGTH by ERB_Type and ERB_Overlap
+ggplot(total_ref_length_erb_type, aes(x = ERB_Type, y = TotalRefLength, fill = ERB_Type)) +
+  geom_bar(stat = 'identity') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB_Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH by ERB_Type in dat2')
+
+ggplot(total_ref_length_erb_overlap, aes(x = ERB_Overlap, y = TotalRefLength, fill = ERB_Overlap)) +
+  geom_bar(stat = 'identity') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB_Overlap', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH by ERB_Overlap in dat2')
+# Compute counts of SVs per REF_Length_Bin, facet wrapped by SVTYPE
+counts_ref_length_sv_dat2 <- dat2 %>%
+  group_by(SVTYPE, REF_Length_Bin, VariantLifted) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+# Create a stacked bar chart with counts of SVs, facet wrapped by SVTYPE
+ggplot(counts_ref_length_sv_dat2, aes(x = REF_Length_Bin, y = Count, fill = VariantLifted)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'REF Length Bin', y = 'Count of SVs') +
+  ggtitle('Count of SVs by REF Length Bin in dat2')
+
+# REFLENGTH per ERB_Type, facet wrapped by SVTYPE
+counts_ref_length_erb_type <- dat2 %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarize(Count = sum(REFLENGTH), .groups = 'drop')
+
+# counts of REFLENGTH, facet wrapped by SVTYPE
+ggplot(counts_ref_length_erb_type, aes(x = ERB_Type, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+# Filter out rows with NA in ERB_Type
+counts_ref_length_erb_type_filtered <- counts_ref_length_erb_type %>%
+  filter(!is.na(ERB_Type))
+
+# Create a bar plot of REFLENGTH per ERB_Type facet wrapped by SVTYPE (excluding NA)
+ggplot(counts_ref_length_erb_type_filtered, aes(x = ERB_Type, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  egg::theme_article(base_size = 12) +
+  facet_wrap(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'ERB Type', y = 'Total REFLENGTH') +
+  ggtitle('Total REFLENGTH per ERB Type, Facet Wrapped by SVTYPE') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(size = 8))
+
+
+```
+
+```{r fig.width=10}
+#by AF? by any other metric
+ggplot(dat, aes(x = abs(AF), fill = VariantLifted, color = VariantLifted)) +
+  geom_density(alpha = 0.5) +
+  egg::theme_article(base_size = 12) +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'Allele Frequncy (abs)', y = 'Fraction of SVs') +
+  scale_x_continuous(trans = 'log10') +
+  ggtitle('Fraction of SVs Lifted to GRCh37')
+
+```
+
+#ERB data was produced with the newly lifted bed file 
+
+```{r fig.width=10}
+
+
+erbData <- read.table('variantsPostLiftover.sorted_intersect.txt', sep = '\t', header = FALSE)
+colnames(erbData) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'ERB_Contig', 'ERB_Start', 'ERB_End', 'ERB_Type', 'ERB_Overlap')
+erbData$ERB_Length <- erbData$ERB_End - erbData$ERB_Start + 1
+erbData$ERB_Overlap_Pct <- erbData$ERB_Overlap / erbData$ERB_Length
+
+# Create some simplified columns to make plotting easier:
+dat2 <- merge(dat, erbData[c('UniqueKey', 'ERB_Type', 'ERB_Overlap')], by = 'UniqueKey', all.x = T)
+
+# 4304 duplicates...need to clean up input data
+print(nrow(dat2) - nrow(dat))
+
+
+P1 <- ggplot(dat2 %>% group_by(SVTYPE, ERB_Type) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = ERB_Type, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Type', y = 'Fraction of SVs')
+
+P2 <- ggplot(dat2 %>% group_by(SVTYPE, ERB_Type) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = ERB_Type, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Type', y = '# SVs')
+
+P1 + P2 + patchwork::plot_layout(guides = 'collect')
+
+
+
+ggplot(dat2, aes(x = ERB_Overlap, fill = ERB_Type)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Overlap', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  scale_x_continuous(trans = 'log10') 
+
+
+```
+
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Create some simplified columns to make plotting easier:
+dat$OverlapsGene <- !is.na(dat$OG)
+
+ggplot(dat %>% group_by(SVTYPE, OverlapsGene) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = OverlapsGene, y = Total)) +
+  geom_col(color = 'black') +
+  scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12)
+
+#this is iffy
+toInspect <- dat[dat$SVTYPE %in% c('DUP', 'INV', 'BND'),] %>% select(UniqueKey, CHROM, POS, SVTYPE, SVLEN, ANN, AF, IMPACT, ALT) %>% filter(!grepl(ANN, pattern = 'intergenic_region'))
+
+totalSVLEN <- sum(toInspect$SVLEN)
+percentageBySVTYPE <- toInspect %>%
+  group_by(SVTYPE) %>%
+  summarize(Percentage = sum(SVLEN) / totalSVLEN * 100)
+
+```
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Limit to overlapping genes:
+toPlot <- dat %>%
+  filter(OverlapsGene) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT) %>% 
+  summarise(Total = n())
+
+toPlot$IMPACT[is.na(toPlot$IMPACT)] <- 'MODIFIER'
+print(sum(toPlot$Total))
+
+ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  labs(x = 'SV Type') +
+  egg::theme_article(base_size = 12) +
+  ggtitle('Impact on Protein Coding')
+
+toPlot <- toPlot %>%
+  filter(IMPACT != 'MODIFIER') %>%
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = sum(Total))
+
+print(sum(toPlot$Total))
+ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type') +
+  ggtitle('Impact on Protein Coding')
+
+```
+
+# This should summarize by effect type:
+
+```{r}
+
+SEVERE_EFFECTS <- c('exon_loss_variant', 'stop_lost', 'disruptive_inframe_deletion', 'frameshift_variant', 'stop_gained', 'transcript_ablation', 'bidirectional_gene_fusion', 'gene_fusion', 'disruptive_inframe_deletion', 'disruptive_inframe_insertion', 'splice_donor_variant', 'start_lost', 'splice_acceptor_variant')
+
+SEVERE_EFFECTS_PATTERN <- paste0(SEVERE_EFFECTS, collapse = '|')
+
+simplifyVE <- function(toPlot) {
+  toPlot$VE_Simplified <- sapply(toPlot$VE, function(x){
+    x <- unlist(strsplit(x, split = '|', fixed = TRUE))
+    if (any(grepl(x = x, pattern = SEVERE_EFFECTS_PATTERN))){
+      return('Severe Coding Defect')
+    }
+    
+    if (length(x) == 1) {
+      return(x[1])
+    }
+    
+    x <- x[x != 'intergenic_region']
+    
+    if (length(intersect(x, SEVERE_EFFECTS)) > 0) {
+      return('Severe Coding Defect')
+    }
+    
+    if (any(grepl(x = x, pattern = paste0(SEVERE_EFFECTS, collapse = '|')))){
+      print(x)      
+      return('Severe Coding Defect')
+    }
+    
+    return(paste0(x, collapse = '|'))
+  })
+  
+  return(toPlot)
+}
+
+
+#NOTE: most of the low frequency categories are HIGH impact. 
+toPlot <- simplifyVE(dat) %>% 
+  filter(OverlapsGene) %>% 
+  filter(!is.na(IMPACT)) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT, VE_Simplified) %>% 
+  summarise(Total = n())
+
+
+x <- toPlot %>% group_by(VE_Simplified, IMPACT) %>% summarize(Total = sum(Total)) %>% arrange(desc(T))
+length(unique(toPlot$VE_Simplified))
+
+P1 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(x = 'SV Type')
+
+
+P2 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(x = 'SV Type')
+
+
+P1 + P2
+
+
+
+```
+
+# TFBS / Motifs:ie Homer data
+
+
+```{r}
+
+
+
+
+
+
+```
+
+#exploring dat in a few different ways
+```{r}
+####some AF plots?????
+#different types of plots besides bar plots
+# Histogram of Allele Frequency (AF)
+ggplot(dat, aes(x = AF)) +
+  geom_histogram(binwidth = 0.01, fill = "blue", color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+# Density plot of AF
+ggplot(dat, aes(x = AF)) +
+  geom_density(fill = "blue") +
+  labs(title = "Density Plot of Allele Frequency (AF)", x = "AF") +
+  theme_minimal()
+
+# Histogram of AF for different SVTYPE categories
+ggplot(dat, aes(x = AF, fill = SVTYPE)) +
+  geom_histogram(binwidth = 0.01, color = "black") +
+  labs(title = "Distribution of Allele Frequency (AF) by SVTYPE", x = "AF") +
+  theme_minimal()
+
+# Box plot of AF by IMPACT
+ggplot(dat, aes(x = IMPACT, y = AF)) +
+  geom_boxplot(fill = "blue", color = "black") +
+  labs(title = "Box Plot of Allele Frequency (AF) by IMPACT", x = "IMPACT", y = "AF") +
+  theme_minimal()
+
+# Box plot of AF by SVTYPE
+ggplot(dat, aes(x = SVTYPE, y = AF)) +
+  geom_boxplot(fill = "blue", color = "black") +
+  labs(title = "Box Plot of Allele Frequency (AF) by SVTYPE", x = "SVTYPE", y = "AF") +
+  theme_minimal()
+
+##Impact and SVTYPE
+# Bar chart of IMPACT categories
+ggplot(dat, aes(x = IMPACT)) +
+  geom_bar(fill = "blue") +
+  labs(title = "Frequency of IMPACT Categories", x = "IMPACT", y = "Frequency") +
+  theme_minimal()
+
+# Bar chart of SVTYPE categories
+ggplot(dat, aes(x = SVTYPE)) +
+  geom_bar(fill = "blue") +
+  labs(title = "Frequency of SVTYPE Categories", x = "SVTYPE", y = "Frequency") +
+  theme_minimal()
+
+
+
+```
+###remake the Homer overlap file and plot this
+```{r}
+
+
+
+```
+#bin AF
+```{r}
+###AF with bins
+# Create bins 
+bins <- cut(dat$AF, 
+            breaks = c(0, 0.15, 0.33, 0.9, 1), 
+            labels = c("Ultra Rare", "Rare", "Common", "AF=1"),
+            include.lowest = TRUE)
+
+# add col to data frame
+dat$AF_Bin <- bins
+
+# SVTYPE and AF bin
+ggplot(dat, aes(x = SVTYPE, fill = AF_Bin)) +
+  geom_bar(position = "dodge") +
+  labs(x = "SVTYPE", y = "Count", fill = "AF Bin", 
+       title = "Stratified Count of SVTYPE by AF Bin") +
+  scale_fill_manual(
+    values = c("Ultra Rare" = "blue", "Rare" = "darkolivegreen", 
+               "Common" = "orange", "AF=1" = "red"),  # Define colors
+    labels = c("Ultra Rare", "Rare", "Common", "AF=1")  # Define legend labels
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+```{r}
+dat$REFLENGTH <- nchar(dat$REF)
+
+
+```
+
+```{r}
+
+erbData$ERB_Length <- erbData$ERB_End - erbData$ERB_Start + 1
+#erbData <- merge(erbData, dat[c('UniqueKey', 'SVLEN')], by = 'UniqueKey', all.x = T, all.y = F)
+erbData <- merge(erbData, dat[c('UniqueKey', 'SVLEN', 'SVTYPE')], by = 'UniqueKey', all.x = TRUE, all.y = FALSE)
+erbData$EffectiveOverlap <- erbData$ERB_Overlap
+erbData$EffectiveOverlap[grepl(erbData$UniqueKey, pattern = 'INS')] <- erbData$SVLEN[grepl(erbData$UniqueKey, pattern = 'INS')]
+erbData$ERB_Overlap_Pct <- erbData$EffectiveOverlap / erbData$ERB_Length
+
+duplicates <- any(duplicated(colnames(erbData)))
+
+# If duplicates are found, rename columns to make them unique
+if (duplicates) {
+  colnames(erbData) <- make.unique(colnames(erbData))
+  #plot
+}
+ggplot(erbData, aes(x = ERB_Length, y = ERB_Overlap_Pct)) +
+  geom_point() +  # You can choose a different geom if needed (e.g., geom_line, geom_bar)
+  labs(
+    title = "ERB Overlap Percentage vs. ERB Length",
+    x = "ERB Length",
+    y = "ERB Overlap fraction"
+  ) +
+  theme_minimal()
+
+#or with bins 
+# Define the cutoff values and labels for binning
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb, -1000kb", "-10kb, -100kb", "-7kb, -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp, -1kb", "-250bp, -350bp", "-100bp, -250bp", "-10bp, -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5k - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# binned values
+erbData$Length_Bin <- cut(erbData$ERB_Length, breaks = breaks, labels = tags)
+
+# plot
+ggplot(erbData, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length "
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0,1)
+  #facet_wrap(.~SVTYPE)
+
+
+# Calculate the total number of bases in the Homer intersect file
+total_bases_ERB <- sum(erbData$ERB_Length)
+
+# Print the total number of bases
+cat("Total number of bases:", total_bases_ERB, "\n")
+
+#lop off effective overlap below 5 percent, or put in line?? and print how many  that excludes 
+
+#With SVTYPE hopefully( facet wrap) 
+# plot
+ggplot(erbData, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length "
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0,1)
+  facet_wrap(. ~ SVTYPE.x)
+  
+# below 5 percent
+Erb_bytype_withSVwrap <- ggplot(erbData, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1) +
+  facet_wrap(. ~ SVTYPE.x)
+
+print(Erb_bytype_withSVwrap)
+```
+```{r}
+# subset ERB_Overlap_Pct below 5 percent and more than 5 percent
+erbData_below_5 <- erbData %>% filter(ERB_Overlap_Pct < 0.05)
+erbData_above_5 <- erbData %>% filter(ERB_Overlap_Pct >= 0.05)
+
+# below 5 percent
+plot_below_5 <- ggplot(erbData_below_5, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length (ERB_Overlap_Pct < 5%)",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1) +
+  facet_wrap(. ~ SVTYPE.x)
+
+
+
+print(plot_below_5)
+
+# ERB more than/= 5 percent
+plot_above_5 <- ggplot(erbData_above_5, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length (ERB_Overlap_Pct >= 5%)",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1) +
+  facet_wrap(. ~ SVTYPE.x)
+
+plot_above_5 <- ggplot(erbData_above_5, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_boxplot() +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length (ERB_Overlap_Pct >= 5%)",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1) +
+  facet_wrap(. ~ SVTYPE.x, scales = "free_x", ncol = 2)
+
+# number of rows 
+cat("Number of rows with ERB_Overlap_Pct >= 5%:", nrow(erbData_above_5), "\n")
+# 33490
+#rows
+cat("Number of rows with ERB_Overlap_Pct < 5%:", nrow(erbData_below_5), "\n")
+#33490
+print(plot_above_5)
+
+
+```
+
+
+```{r}
+# Subset rows matching 'TF_binding_site'
+tf_binding_site_data <- erbData %>%
+  filter(ERB_Type == 'TF_binding_site')
+
+# Create a ggplot bar chart
+ggplot(tf_binding_site_data, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Lifted Bed Overlaps with ERB TFBS", x = "Length_Bin", y = "ERB_Overlap_Pct") +
+  theme_minimal()
+
+```
+
+```{r}
+# plot
+ggplot(erbData, aes(x = Length_Bin, y = ERB_Overlap_Pct)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Fraction of ERB Overlap per feature by Binned ERB Length",
+    x = "Binned ERB Length",
+    y = "Effective Overlap / ERB Length "
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+```{r}
+
+summary_table_erb <- erbData %>%
+  group_by(SVTYPE, ERB_Type) %>%
+  summarise(
+    Count = n(),                        
+    `# Unique SVs` = n_distinct(UniqueKey),                 
+    `# Unique Features` = n_distinct(ERB_Overlap),           
+    `Total BP of Overlap` = sum(ERB_Overlap),                 
+    `Total_SVLENGTH` = sum(SVLENGTHSUM)                        
+  )
+
+# Print the summary table
+print(summary_table_erb)
+
+```
+
+#Homer data was intersected with the Pre lift bed with the new uniq IDs
+
+
+```{r}
+
+HomerData <- read.table('variantsPreLiftover.sorted_Homer_intersect.txt', sep = '\t', header = FALSE)
+colnames(HomerData) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'Homer_Contig', 'Homer_Start', 'Homer_End', 'Homer_Type', 'Homer_Overlap')
+HomerData$Homer_Length <- HomerData$Homer_End - HomerData$Homer_Start + 1
+HomerData$Homer_Overlap_Pct <- HomerData$Homer_Overlap / HomerData$Homer_Length
+
+#merge with the rest of the data:
+dat3 <- merge(dat, HomerData[c('UniqueKey', 'Homer_Type', 'Homer_Overlap')], by = 'UniqueKey', all.x = T)
+
+dat3$TFBSis_NA <- is.na(dat3$Homer_Type)
+
+# dups?
+print(nrow(dat3) - nrow(dat))
+
+# Filter and select the top 20 "Homer_Type" categories for each "SVTYPE"
+top_20_categories <- dat3 %>%
+  group_by(SVTYPE, Homer_Type) %>%
+  summarise(Total = n()) %>%
+  arrange(SVTYPE, desc(Total)) %>%
+  group_by(SVTYPE) %>%
+  slice_max(Total, n = 20) %>%
+  ungroup()
+
+# Create plots for the top 20 categories
+H1 <- ggplot(top_20_categories, aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = Homer_Type, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Type', y = 'Fraction of SVs')
+
+H2 <- ggplot(top_20_categories, aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = Homer_Type, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Type', y = '# SVs')
+
+H1 + H2 + patchwork::plot_layout(guides = 'collect')
+
+# Filter the data for density plot
+filtered_data <- dat3 %>% filter(SVTYPE %in% top_20_categories$SVTYPE, Homer_Type %in% top_20_categories$Homer_Type)
+
+ggplot(filtered_data, aes(x = Homer_Overlap, fill = Homer_Type)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Overlap', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  scale_x_continuous(trans = 'log10')
+
+
+```
+
+```{r}
+
+tfbsIntersect <- read.table('variantsPreLiftover.sorted_Homer_intersect.txt', sep = '\t', header = FALSE)
+colnames(tfbsIntersect) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'TFBS_Contig', 'TFBS_Start', 'TFBS_End', 'TFBS', 'TFBS_Score', 'TFBS_Strand', 'TFBS_Overlap')
+
+tfbsIntersectSummary <- tfbsIntersect %>% group_by(UniqueKey) %>% summarize(hits = n(), maxOverlap = max(TFBS_Overlap))
+
+dat$HasTFBS <- dat$UniqueKey %in% tfbsIntersectSummary$UniqueKey
+
+
+P1 <- ggplot(dat %>% group_by(SVTYPE, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type', y = 'Fraction of SVs')
+
+P2 <- ggplot(dat %>% group_by(SVTYPE, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type', y = '# SVs')
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+
+```
+```{r}
+
+# Subset the data to include only deletions
+dat_del <- dat %>% filter(SVTYPE == 'DEL')
+
+#how many is this pulling-189160
+nrow(dat_del)
+
+P3 <- ggplot(dat_del %>% group_by(SV_Length_Bin, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SV_Length_Bin, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+  labs(x = 'SV Length', y = 'Fraction of SVs')
+P3
+P4 <- ggplot(dat_del %>% group_by(SV_Length_Bin, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SV_Length_Bin, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+  labs(x = 'SV Length', y = '# SVs')
+P4
+
+
+
+```
+
+```{r}
+
+
+
+ggplot(tfbsIntersect, aes(x = TFBS_Overlap)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'TFBS Overlap', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  scale_x_continuous(trans = 'log10') 
+#P1
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P1), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Regulatory Element Overlaps', location = ph_location_type(type = "title") )
+
+```
+
+```{r}
+ggplot(filtered_data, aes(x = Homer_Overlap, fill = Homer_Type)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Overlap', y = '# SVs') +
+  scale_x_continuous(trans = 'log10') +
+  theme_minimal() +
+  theme(legend.position = 'none')  # Hide the legend
+```
+
+```{r}
+
+#is there a TFBS or not
+dat$TFBSis_NA <- is.na(dat3$Homer_Type)
+
+#  "Is_NA"
+ggplot(dat3, aes(x = TFBSis_NA, fill = TFBSis_NA)) +
+  geom_bar() +
+  scale_fill_manual(values = c("TRUE" = "darkolivegreen", "FALSE" = "blue")) +
+  labs(x = 'Homer is NA', y = 'Count') +
+  theme_minimal()
+
+# SVTYPE 'DEL'
+filtered_data_del <- dat3 %>% filter(SVTYPE == 'DEL')
+
+# Add a new column "Is_NA" based on "Homer_Type"
+filtered_data_del$Is_NA <- is.na(filtered_data_del$Homer_Type)
+
+# Deletions only
+ggplot(filtered_data_del, aes(x = Is_NA, fill = Is_NA)) +
+  geom_bar() +
+  scale_fill_manual(values = c("TRUE" = "darkolivegreen", "FALSE" = "blue")) +
+  labs(x = 'Is Homer_Type NA Deletions only', y = 'Count') +
+  theme_minimal()
+
+
+```
+
+```{r}
+ # Filter and select the top 20 "Homer_Type" categories for each "SVTYPE"
+top_20_categories <- dat3 %>%
+  group_by(SVTYPE, Homer_Type) %>%
+  summarise(Total = n()) %>%
+  arrange(SVTYPE, desc(Total)) %>%
+  group_by(SVTYPE) %>%
+  slice_max(Total, n = 20) %>%
+  ungroup()
+
+# Calculate the total number of bases (sum of 'Homer_Length') for each SVTYPE
+bases_by_SVTYPE <- HomerData %>%
+  filter(!is.na(SVTYPE), SVTYPE %in% top_20_categories$SVTYPE) %>%
+  group_by(SVTYPE) %>%
+  summarise(Total_Bases = sum(Homer_Length))
+
+# Create a bar plot
+ggplot(bases_by_SVTYPE, aes(x = forcats::fct_reorder(SVTYPE, desc(Total_Bases)), y = Total_Bases, fill = SVTYPE)) +
+  geom_bar(stat = "identity", color = 'black') +
+  labs(x = 'SVTYPE', y = 'Total Bases') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+
+
+```
+
+```{r}
+
+ 
+#Calculate the total number of bases in the Homer intersect file 
+#this from before HomerData <- read.table('variantsPreLiftover.sorted_Homer_intersect.txt', sep = '\t', header = FALSE)
+colnames(HomerData) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'Homer_Contig', 'Homer_Start', 'Homer_End', 'Homer_Type', 'Homer_Overlap')
+HomerData$Homer_Length <- HomerData$Homer_End - HomerData$Homer_Start + 1
+HomerData$Homer_Overlap_Pct <- HomerData$Homer_Overlap / HomerData$Homer_Length
+
+# Calculate the total number of bases (sum of 'Homer_Length')
+total_bases_TFBS_HOMER <- sum(HomerData$Homer_Length)
+
+# Print the total number of bases
+cat("Total number of bases:", total_bases_TFBS_HOMER, "\n")
+
+#mgap total bases 2,971,314,966 from  #https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_003339765.1/
+
+#proportion of macaque genome that is TFBS from homer
+#2,971,314,966/120530571 = 24.6519612522
+
+# hg19 is 3,101,788,170
+#3,101,788,170/ERB is 142293532 = 21.7985183613
+#https://www.nature.com/articles/s41467-023-36421-3 says 
+# 4,380,444 TFBSs for 161 transcription factors from the UCSC Genome Browser
+#3,101,788,170/find this resoruce and add lengths  = 
+
+# Plot the number of bases for each SVTYPE
+library(ggplot2)
+
+# Group the data by SVTYPE and calculate the sum of Homer_Length for each SVTYPE
+bases_by_SVTYPE <- HomerData %>%
+  group_by(SVTYPE) %>%
+  summarize(Total_Bases = sum(Homer_Length))
+
+# Create a bar plot
+ggplot(bases_by_SVTYPE, aes(x = SVTYPE, y = Total_Bases, fill = SVTYPE)) +
+  geom_bar(stat = "identity", color = 'black') +
+  labs(x = 'SVTYPE', y = 'Total Homer Bases') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+```
+
+no working
+```{r}
+# Add a new variable indicating if Homer_Type is NA or not
+dat3$Homer_Type_NA <- ifelse(is.na(dat3$Homer_Type), "NA", "Not NA")
+
+# Filter the data for density plot
+filtered_data <- dat %>% 
+  filter(SVTYPE %in% top_20_categories$SVTYPE, !is.na(Homer_Type), !is.na(Homer_Overlap))
+
+# Create a summary plot
+H3 <- ggplot(filtered_data, aes(x = Homer_Type, fill = Homer_Type)) +
+  geom_bar(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Type', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free')
+
+# Create density plot with log transformation
+H4 <- ggplot(filtered_data, aes(x = log10(Homer_Overlap + 0.001), fill = Homer_Type)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'Homer Overlap (log10)', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free')
+
+# Combine the plots
+H3 + H4 + patchwork::plot_layout(guides = 'collect')
+
+
+```
+```{r}
+
+#Per type of ERB, like enhancer, compute:
+#The total # of SVs that overlap
+#The sum of REFLENGTH for those SVs
+#The number of ERB features with an overlap
+#The sum of the bases comprised by those features
+#Per ERB type, the total # of features and sum of REFLENGTH
+#And then we need similar totals for the inputs:
+#For all SVs, list the number of SVs and sum of REFLENGTH
+#For just the SVs that listed, same thing
+#For each of these, compute this as "percent of genome", meaning sum(REFLENGTH)/genomeSize
+
+
+#references
+#mgap total bases 2,971,314,966 from  #https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_003339765.1/
+# hg19 is 3,101,788,170
+
+# Print the total number of bases
+cat("Total number of bases:", total_bases_TFBS_HOMER, "\n")
+#proportion of macaque genome that overlaps with all homer motifs
+#2,971,314,966/120530571 = 24.6519612522
+
+#proportion of bases from ERB intersect txt 
+#3,101,788,170/ERB is 142293532 = 21.7985183613
+
+
+#homer raw file... count this with python? its large
+#homer intersect file
+tfbsIntersect <- read.table('variantsPreLiftover.sorted_Homer_intersect.txt', sep = '\t', header = FALSE)
+colnames(tfbsIntersect) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'TFBS_Contig', 'TFBS_Start', 'TFBS_End', 'TFBS', 'TFBS_Score', 'TFBS_Strand', 'TFBS_Overlap')
+
+variantsPreLiftover.sorted_Homer_intersect.txt
+#subset that are TFBS
+#subset of homer elements of each type and length
+# Read the data from the file
+
+
+# Count the unique features in the 'TFBS' column
+unique_features <- unique(tfbsIntersect$TFBS)
+cat("Number of unique features in 'TFBS':", length(unique_features), "\n")
+
+# Calculate 'TFBS_Length' and add it as a new column
+tfbsIntersect$TFBS_Length <- tfbsIntersect$TFBS_End - tfbsIntersect$TFBS_Start + 1
+
+# Sum the 'TFBS_Length' column for each unique 'TFBS' category
+TFBS_lengths <- tapply(tfbsIntersect$TFBS_Length, tfbsIntersect$TFBS, sum)
+
+# Print the sum of 'TFBS_Length' for each 'TFBS' category
+cat("Sum of 'TFBS_Length' for each 'TFBS' category:\n")
+print(TFBS_lengths)
+
+
+```
+
+
+Bens most recent TFBS plots
+# TFBS / Motifs:
+
+
+```{r}
+
+tfbsIntersect <- read.table('homerIntersect.bed.gz', sep = '\t', header = FALSE)
+colnames(tfbsIntersect) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'TFBS_Contig', 'TFBS_Start', 'TFBS_End', 'TFBS', 'TFBS_Score', 'TFBS_Strand', 'TFBS_Overlap')
+
+tfbsIntersectSummary <- tfbsIntersect %>% group_by(UniqueKey) %>% summarize(hits = n(), maxOverlap = max(TFBS_Overlap))
+
+dat$HasTFBS <- dat$UniqueKey %in% tfbsIntersectSummary$UniqueKey
+
+
+P1 <- ggplot(dat %>% group_by(SVTYPE, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type', y = 'Fraction of SVs')
+
+P2 <- ggplot(dat %>% group_by(SVTYPE, HasTFBS) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = HasTFBS, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type', y = '# SVs')
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+P
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Regulatory Element Overlaps', location = ph_location_type(type = "title") )
+
+
+
+
+
+```

@@ -1,0 +1,604 @@
+---
+title: "AF.5_PB_mGap"
+output: html_document
+date: "2023-11-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+dat_SV_Table <- read.table('CLR.CCS.merge.tagID.annotated.snpEff.filtered_DISCVRSeq_ann.VTT_notmolten.txt', sep = '\t', header = TRUE)
+
+#1 load the list of unique ids and append to the dat to summerize what SVs have an overlapping OG with the mgap data
+
+#2 split chromosome 19 and summarize  
+
+#3 chromomap with SV and mgap coords for high impact?
+
+# Load file: CLR.CCS.merge.uniqID.annotated.snpEff.annotated.annotated.annotated.ME.vcf.gz.AF.5.VTT_notmolten.vcf
+PB_AF_.5 <- read.table('CLR.CCS.merge.uniqID.annotated.snpEff.annotated.annotated.annotated.ME.vcf.gz.AF.5.VTT_notmolten.vcf', sep = '\t', header = TRUE)
+dat_SV_Table$INFO.1 <- NULL
+```
+
+```{r}
+# intersect between PB AF of .5 and mgap
+mGap_PB_AF_.5 <- read.delim("mGap.v2.5.sitesOnly.vcf.gz.AF.5.PBsitesbed", header=FALSE)
+
+```
+add in header, first 26 cols from the PB bed file
+ie CHROM   chromStart      chromEnd        ID      REF     ALT     QUAL    FILTER  INFO    AC      ANN     AF      DP      VAR     NO-CALL TYPE    INFO    SVLEN   SVANN   HIG     OG      IMPACT  SVTYPE  VE
+      LOF
+then mgap
+mgapCHROM  mgapPOS mgapID    mgapREF mgapALT mgapQUAL    mgapFILTER  mgapINFO          mgapFORMAT  
+
+and then overlap of the two
+OVERLAP 
+
+
+```
+
+```{r}
+###DONT RUN THIS, this file is way too big
+merged_data_byOG_SV_mgapOG <- read.table('merged_data_byOG_SV_mgapOG.txt', sep = '\t', header = TRUE)
+dat_SV_Table$INFO.1 <- NULL
+
+# Print the first row
+print(merged_data_byOG_SV_mgapOG[1,])
+
+# Print the column numbers and their names
+for (i in 1:ncol(merged_data_byOG_SV_mgapOG)) {
+  cat("Column", i, ": ", colnames(merged_data_byOG_SV_mgapOG)[i], "\n")
+}
+
+```
+
+```{r}
+#load the fixed  high impact subset
+
+merged_data_byOG_SV_mgapOG_subset_HighImpact_TS <- read_delim("merged_data_byOG_SV_mgapOG_subset_HighImpact_TS.txt", 
+  delim = "\t", 
+  escape_double = FALSE, 
+  col_names = FALSE, 
+  trim_ws = TRUE
+)
+#add in the header
+header_TS <- c(
+  "OG",
+  "ID",
+  "AF",
+  "SVLEN",
+  "IMPACT",
+  "SVTYPE",
+  "ID_mgap",
+  "ANN_mgap",
+  "AF_magp",
+  "mgap_TYPE",
+  "SVANN_mgap"
+)
+
+# Set the column names of the data frame to the header
+colnames(merged_data_byOG_SV_mgapOG_subset_HighImpact_TS) <- header_TS
+
+
+# Print the first row
+print(merged_data_byOG_SV_mgapOG_subset_HighImpact_TS[1,])
+
+# Print the column numbers and their names
+for (i in 1:ncol(merged_data_byOG_SV_mgapOG_subset_HighImpact_TS)) {
+  cat("Column", i, ": ", colnames(merged_data_byOG_SV_mgapOG_subset_HighImpact_TS)[i], "\n")
+}
+
+```
+```{r}
+
+merged_data_byOG_SV_mgapOG_subset_HighImpact <- read.table('merged_data_byOG_SV_mgapOG_subset_HighImpact.txt', sep = '\t', header = TRUE)
+dat_SV_Table$INFO.1 <- NULL
+
+#first row
+print(merged_data_byOG_SV_mgapOG_subset_HighImpact[1,])
+
+#column numbers and names
+for (i in 1:ncol(merged_data_byOG_SV_mgapOG_subset_HighImpact)) {
+  cat("Column", i, ": ", colnames(merged_data_byOG_SV_mgapOG_subset_HighImpact)[i], "\n")
+}
+
+n_rows <- nrow(merged_data_byOG_SV_mgapOG_subset_HighImpact)
+cat("Number of rows in the data frame:", n_rows, "\n")
+
+str(merged_data_byOG_SV_mgapOG_subset_HighImpact)
+```
+
+overlaps gene but by PB and mgap in common
+```{r}
+
+# Rename the columns for clarity
+merged_data_byOG_SV_mgapOG <- merged_data_byOG_SV_mgapOG %>%
+  rename("PB_IMPACT" = IMPACT, "mgap_IMPACT" = IMPACT.1)
+
+```
+
+
+```{r}
+
+###dont run this the larger DF will still get pulled
+
+#  OG by PB_IMPACT and mgap_IMPACT, excluding NAs
+counts_data_impact <- merged_data_byOG_SV_mgapOG %>%
+  filter(!is.na(PB_IMPACT) & !is.na(mgap_IMPACT)) %>%
+  group_by(PB_IMPACT, mgap_IMPACT) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+#  bar plots
+plot_counts_impact <- ggplot(counts_data_impact, aes(x = PB_IMPACT, y = Count, fill = mgap_IMPACT)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "Impact",
+    y = "Count of OG",
+    fill = "Source",
+    title = "Counts of OG by Impact (PB and mgap)",
+    subtitle = "Side-by-side Bar Plot (Excluding NAs)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+print(plot_counts_impact)
+
+
+
+```
+
+```{r}
+
+# Rename the TYPE column to "mgap_TYPE"
+merged_data_byOG_SV_mgapOG_subset <- merged_data_byOG_SV_mgapOG_subset %>%
+  rename(mgap_TYPE = TYPE)
+```
+
+```{r}
+#counts of OG by SVTYPE and mgap_TYPE
+counts_data_TYPE_SVTYPE_subset <- merged_data_byOG_SV_mgapOG_subset %>%
+  group_by(SVTYPE, mgap_TYPE) %>%
+  summarise(Count = n())
+
+# Display
+print(counts_data_TYPE_SVTYPE)
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+#HIGHIMPACT
+#counts of OG by SVTYPE and mgap_TYPE
+counts_data_TYPE_SVTYPE_subset_HighImpact <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE, mgap_TYPE) %>%
+  summarise(Count = n())
+
+# Display
+print(counts_data_TYPE_SVTYPE_subset_HighImpact)
+
+
+```
+
+
+```{r}
+
+# facet SVTYPE
+plot_counts_SVTYPE <- ggplot(counts_data_TYPE_SVTYPE_subset_HighImpact, aes(x = SVTYPE, y = Count)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "SVTYPE",
+    y = "Count of OG",
+    title = "Counts of OG by SVTYPE",
+    subtitle = "Bar Plot (Excluding NAs)",
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# barplot mgap_TYPE
+plot_counts_mgap_TYPE <- ggplot(counts_data_TYPE_SVTYPE_subset_HighImpact, aes(x = mgap_TYPE, y = Count)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "mgap_TYPE",
+    y = "Count of OG",
+    title = "Counts of OG by mgap_TYPE",
+    subtitle = "Bar Plot (Excluding NAs)",
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#  plots side by side
+library(gridExtra)
+grid.arrange(plot_counts_SVTYPE, plot_counts_mgap_TYPE, ncol = 2)
+
+
+```
+
+make this unique gene counts
+
+```{r}
+
+# OG column
+unique_OG_count <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>% 
+  summarise(UniqueOGCount = n_distinct(OG))
+
+# unique OG values
+print(unique_OG_count)
+
+ # OG column
+unique_SV_count <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>% 
+  summarise(UniqueSVCount = n_distinct(ID))
+
+# unique OG values
+print(unique_SV_count)
+
+# Ann- maybe unique to mgap column??
+unique_magp_count <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>% 
+  summarise(UniquemagpCount = n_distinct(ANN_mgap))
+
+# unique OG values
+print(unique_magp_count)
+
+
+```
+
+
+```{r}
+
+# Create a data frame with counts of OG by SVTYPE
+counts_data_SVTYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE) %>%
+  summarise(Count = n())
+
+# Create a data frame with the count of unique OG values for SVTYPE
+unique_OG_count_SVTYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE) %>%
+  summarise(UniqueOGCount = n_distinct(OG))
+
+# Merge the two data frames
+combined_data_SVTYPE <- left_join(counts_data_SVTYPE, unique_OG_count_SVTYPE, by = "SVTYPE")
+
+# Create a bar plot for unique OG count by SVTYPE
+plot_unique_OG_SVTYPE <- ggplot(combined_data_SVTYPE, aes(x = SVTYPE, y = UniqueOGCount)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(
+    x = "SVTYPE",
+    y = "Unique OG Count",
+    title = "Unique High Impact PacBio ",
+    subtitle = "Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plot
+print(plot_unique_OG_SVTYPE)
+
+# Create a data frame with counts of OG by mgap_TYPE
+counts_data_mgap_TYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(mgap_TYPE) %>%
+  summarise(Count = n())
+
+# Create a data frame with the count of unique OG values for mgap_TYPE
+unique_OG_count_mgap_TYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(mgap_TYPE) %>%
+  summarise(UniqueOGCount = n_distinct(OG))
+
+# Merge the two data frames
+combined_data_mgap_TYPE <- left_join(counts_data_mgap_TYPE, unique_OG_count_mgap_TYPE, by = "mgap_TYPE")
+
+# Create a bar plot for unique OG count by mgap_TYPE
+plot_unique_OG_mgap_TYPE <- ggplot(combined_data_mgap_TYPE, aes(x = mgap_TYPE, y = UniqueOGCount)) +
+  geom_bar(stat = "identity", fill = "purple") +
+  labs(
+    x = "mgap_TYPE",
+    y = "Unique OG Count",
+    title = "Unique High Impact mGap",
+    subtitle = "Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plot
+print(plot_unique_OG_mgap_TYPE)
+
+#  plots side by side
+library(gridExtra)
+grid.arrange(plot_unique_OG_mgap_TYPE, plot_unique_OG_SVTYPE, ncol = 2)
+
+```
+
+
+```{r}
+
+# counts of OG by SVTYPE and mgap_TYPE
+counts_data_SVTYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE) %>%
+  summarise(Count = n())
+
+# unique OG values for SVTYPE
+unique_OG_count_SVTYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE) %>%
+  summarise(UniqueOGCount = n_distinct(OG))
+
+# Merge SVTYPE
+combined_data_SVTYPE <- left_join(counts_data_SVTYPE, unique_OG_count_SVTYPE, by = "SVTYPE")
+
+#  OG by mgap_TYPE
+counts_data_mgap_TYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(mgap_TYPE) %>%
+  summarise(Count = n())
+
+# unique OG values for mgap_TYPE
+unique_OG_count_mgap_TYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(mgap_TYPE) %>%
+  summarise(UniqueOGCount = n_distinct(OG))
+
+# Merge
+combined_data_mgap_TYPE <- left_join(counts_data_mgap_TYPE, unique_OG_count_mgap_TYPE, by = "mgap_TYPE")
+
+# SVTYPE and mgap_TYPE
+combined_data <- bind_rows(
+  mutate(combined_data_SVTYPE, Type = "SVTYPE"),
+  mutate(combined_data_mgap_TYPE, Type = "mgap_TYPE")
+)
+
+#  bar plot
+plot_combined <- ggplot(combined_data, aes(x = Type, y = UniqueOGCount, fill = Type)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "Type",
+    y = "Unique OG Count",
+    title = "Unique OG Count by SVTYPE and mgap_TYPE",
+    subtitle = "Grouped Bar Plot",
+    fill = "Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+print(plot_combined)
+
+```
+ 
+ 
+```{r}
+
+# counts of OG by SVTYPE
+counts_data_gene_SVTYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVTYPE, OG) %>%
+  summarise(Count = n())
+
+#  SVTYPE
+plot_counts_gene_SVTYPE <- ggplot(counts_data_gene_SVTYPE, aes(x = OG, y = Count, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "Gene Name(OG)",
+    y = "Count",
+    fill = "SVTYPE",
+    title = "Counts of Genes by SVTYPE",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+print(plot_counts_gene_SVTYPE)
+
+# counts of OG by SVTYPE and gene name
+counts_data_gene_mgap_TYPE <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(mgap_TYPE, OG) %>%
+  summarise(Count = n())
+
+# barplot SVTYPE
+plot_counts_gene_mgap_TYPE <- ggplot(counts_data_gene_mgap_TYPE, aes(x = OG, y = Count, fill = mgap_TYPE)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "Gene Name(OG)",
+    y = "Count",
+    fill = "mgap_TYPE",
+    title = "Counts of Genes by mgap_TYPE",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#  plot
+print(plot_counts_gene_mgap_TYPE)
+
+
+```
+
+```{r}
+#Heatmaps of impact high data 
+
+
+
+# Create a heatmap
+heatmap_plot_highImpact <- ggplot(merged_data_byOG_SV_mgapOG_subset_HighImpact_TS, aes(x = mgap_TYPE, y = OG, fill = SVLEN)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust color scale
+  labs(
+    title = "Heatmap of SVLEN by mgap_TYPE and OG",
+    x = "mgap_TYPE",
+    y = "OG"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    legend.position = "right"  # Position of the color legend
+  )
+
+print(heatmap_plot_highImpact)
+
+```
+
+```{r}
+
+
+# Define brackets and corresponding labels
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Bin the SVLEN values into brackets and assign labels
+merged_data_byOG_SV_mgapOG_subset_HighImpact_TS <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  mutate(SVLEN_Bracket = cut(SVLEN, breaks = breaks, labels = tags, include.lowest = TRUE))
+
+# Recalculate the count of OG in common for each combination of SVLEN Bracket and mgap_TYPE
+count_data <- merged_data_byOG_SV_mgapOG_subset_HighImpact_TS %>%
+  group_by(SVLEN_Bracket, mgap_TYPE) %>%
+  summarise(OG_Count = n_distinct(OG))
+
+library(stringr)
+wrapped_title <- str_wrap("Heatmap number of High Impact Overlapping Genes by mgap_TYPE and PacBio SV length Bin", width = 30)  
+
+# Create the heatmap
+heatmap_plot_OG <- ggplot(count_data, aes(x = reorder(SVLEN_Bracket, -OG_Count), y = mgap_TYPE, fill = OG_Count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust color scale
+  labs(
+    title = wrapped_title,
+    x = "SVLEN Bracket",
+    y = "mgap_TYPE"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    legend.position = "right"  
+  )
+
+# Display the heatmap
+print(heatmap_plot_OG)
+
+```
+
+
+ AF is .5 plots TO DO 
+```{r}
+# Combine by OG column
+combined_data <- merge(PB_AF_.5, mGap_AF_.5, by="OG", all=TRUE)
+
+# Check for common OG values
+combined_data$Common_OG <- !is.na(combined_data$OG.x) & !is.na(combined_data$OG.y)
+
+# Load necessary libraries for plotting (if not already loaded)
+library(ggplot2)
+library(dplyr)
+
+# Create the plot
+plot <- ggplot(combined_data, aes(x=SVTYPE.x, fill=Common_OG)) +
+  geom_bar() +
+  labs(x="SVTYPE", y="Count", fill="Common OG") +
+  ggtitle("SVTYPE Distribution by Common OG")
+
+# Display the plot
+print(plot)
+
+```
+
+
+```{r}
+
+# read unique og
+unique_OG <- read.table("unique_OG.txt", header = FALSE, col.names = c("OG"))
+
+#label overlapping genes
+unique_OG$OverlapWithmGap <- "Overlapping Gene with mGap2.5"
+
+#  OG is NA or not
+dat_SV_Table$OverlapsGene <- !is.na(dat_SV_Table$OG)
+
+# Merge with dat based on OG
+merged_OG_mgap <- merge(dat_SV_Table, unique_OG, by.x = "OG", by.y = "OG", all.x = TRUE)
+
+# plot
+ogSV_ogmgap <- merged_OG_mgap %>%
+  mutate(
+    OverlapsGeneCategory = ifelse(is.na(OverlapsGene), "Not Overlapping", ifelse(OverlapsGene, "Overlapping between mGap and PacBio", "PacBio Variants Overlapping genes "))
+  ) %>%  
+  group_by(SVTYPE, OverlapWithmGap, OverlapsGeneCategory) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# bar plot
+plot_OG_mgap <- ggplot(ogSV_ogmgap, aes(x = SVTYPE, y = Count, fill = OverlapsGeneCategory)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "SVTYPE",
+    y = "Count of Genes",
+    fill = "OverlapWithmGap",
+    title = "Counts of Genes by SVTYPE",
+    subtitle = "Side-by-side Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+print(plot_OG_mgap)
+
+
+
+```
+```{r}
+# Define brackets 
+breaks <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Bin the SVLEN values
+merged_OG_mgap <- merged_OG_mgap %>%
+  mutate(SVLEN_Bracket = cut(SVLEN, breaks = breaks, labels = tags, include.lowest = TRUE))
+
+#  plot
+ogSV_ogmgap_len <- merged_OG_mgap %>%
+  mutate(
+    OverlapsGeneCategory = ifelse(is.na(OverlapsGene), "Not Overlapping", ifelse(OverlapsGene, "Overlapping between mGap and PacBio", "PacBio Variants Overlapping genes "))
+  ) %>%  
+  group_by(SVLEN_Bracket, OverlapWithmGap, OverlapsGeneCategory) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+#bar plot
+plot_OG_mgap_len <- ggplot(ogSV_ogmgap_len, aes(x = SVLEN_Bracket, y = Count, fill = OverlapsGeneCategory)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "SV Length",
+    y = "Count of Genes",
+    fill = "OverlapWithmGap",
+    title = "Counts of Genes by SV Length",
+    subtitle = "Side-by-side Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+print(plot_OG_mgap_len)
+
+```
+lets now load the intersect between AF.5 bed file for the PB SVs and mgap
+
+```{r}
+
+
+
+```
+
+
+
+
+```{r}
+#AF bins
+
+bins_AF <- cut(dat$AF, 
+            breaks = c(0, 0.15, 0.33, 0.9, 1), 
+            labels = c("Ultra Rare", "Rare", "Common", "AF=1"),
+            include.lowest = TRUE)
+
+
+
+```
+

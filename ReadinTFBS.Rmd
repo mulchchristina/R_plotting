@@ -1,0 +1,19 @@
+---
+title: "TFBS chunk"
+output: html_document
+date: "2023-10-17"
+---
+
+```{r}
+HomerData <- read.table('variantsPreLiftover.sorted_Homer_intersect.txt', sep = '\t', header = FALSE)
+colnames(HomerData) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'Homer_Contig', 'Homer_Start', 'Homer_End', 'Homer_Type', 'Homer_Overlap')
+HomerData$Homer_Length <- HomerData$Homer_End - HomerData$Homer_Start + 1
+HomerData$Homer_Overlap_Pct <- HomerData$Homer_Overlap / HomerData$Homer_Length
+
+#merge with the rest of the data:
+dat3 <- merge(dat, HomerData[c('UniqueKey', 'Homer_Type', 'Homer_Overlap')], by = 'UniqueKey', all.x = T)
+
+dat3$TFBSis_NA <- is.na(dat3$Homer_Type)
+
+```
+

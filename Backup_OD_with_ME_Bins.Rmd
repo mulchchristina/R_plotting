@@ -1,0 +1,449 @@
+---
+title: "BackUp_OD_plots"
+author: "mulchc"
+date: "2024-03-07"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+```{r}
+
+genomeSizeMMul10 <- 2971314966
+genomeSizeGRCh37 <- 3101788170
+
+
+```
+
+
+
+# Make a single table with all the SV attributes, keyed off ID:
+
+```{r}
+
+svData <- read.table('svData.table.unique.txt', header = T)
+names(svData)[names(svData) == 'ID'] <- 'SV_ID'
+
+svData$REF_LENGTH <- NA
+svData$REF_LENGTH[svData$SVTYPE == 'DEL'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DEL']
+svData$REF_LENGTH[svData$SVTYPE == 'DUP'] <- abs(svData$SVLEN)[svData$SVTYPE == 'DUP']
+svData$REF_LENGTH[svData$SVTYPE == 'INV'] <- abs(svData$SVLEN)[svData$SVTYPE == 'INV']
+
+svData$REF_LENGTH[svData$SVTYPE == 'INS'] <- 1
+svData$REF_LENGTH[svData$SVTYPE == 'BND'] <- 1
+
+```
+
+Can we add a quick look at the distribution of the Ref lengths for each svtype
+```{r}
+
+ggplot(svData, aes(x = REF_LENGTH, fill = SVTYPE)) +
+  geom_histogram(binwidth = 1, position = 'dodge') +
+  facet_wrap(~ SVTYPE, scales = 'free') +
+  labs(x = 'REF_LENGTH', y = 'Count', title = 'REF_LENGTH distributions by SVTYPE') +
+  theme_minimal()
+
+```
+
+```{r}
+inv_data <- subset(svData, SVTYPE == "INV")
+
+ggplot(inv_data, aes(x = REF_LENGTH, fill = SVTYPE)) +
+  geom_histogram(binwidth = 2000, position = 'dodge') +
+  labs(x = 'REF_LENGTH', y = 'Count', title = 'INV REF_LENGTH Distribution') +
+  theme_minimal()
+
+```
+
+```{r}
+
+# and SV Length
+ggplot(svData, aes(x = SVLEN, fill = SVTYPE)) +
+  geom_density(binwidth = 1, position = 'dodge') +
+  facet_wrap(~ SVTYPE, scales = 'free') +
+  labs(x = 'SVLEN', y = 'Count', title = 'SVLEN distributions by SVTYPE') +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(openxlsx)
+#bnd issue - not unique, make them unique
+bnd_data <- svData[svData$SVTYPE == 'BND', ]
+
+filename <- "svData_BNDs_only.xlsx"
+write.xlsx(bnd_data, filename)
+```
+
+
+# Count the number of rows
+num_bnd_lines <- nrow(bnd_data)
+
+# Print the number of BND lines
+print(num_bnd_lines)
+
+unique_sv_ids <- unique(bnd_data$SV_ID)
+
+# Count the number of unique SV_IDs
+num_unique_sv_ids <- length(unique_sv_ids)
+
+
+
+filter_svData <- function(data) {
+  data %>%
+    group_by(SVTYPE, SV_ID) %>%
+    mutate(instance_count = row_number()) %>%
+    filter(!(SVTYPE == "BND" & instance_count > 1)) %>%
+    select(-instance_count)
+}
+
+# Call the function with svData as input
+svData <- filter_svData(svData)
+
+
+
+
+# Do the same for the lifted data. 
+```{r}
+svDataLifted <- read.table('svData.lifted.bed', header = F)
+names(svDataLifted) <- c('CHROM', 'START0', 'END', 'SV_ID')
+svDataLifted <- merge(svDataLifted, svData[c('SV_ID', 'SVTYPE', 'SVLEN')], all.x = T, all.y = F, by = 'SV_ID')
+
+svDataLifted$REF_LENGTH <-svDataLifted$END - svDataLifted$START0
+
+```
+
+
+
+# These data frames summarize the input SVs for each genome. We will use this when calculating odds-ratios for the intersects
+
+```{r}
+
+
+svSummaryMMul10 <- svData %>% group_by(SVTYPE) %>% summarise(
+  InputSVs = n_distinct(SV_ID),
+  InputRefLength = sum(REF_LENGTH),
+  GenomeSize = genomeSizeMMul10
+)
+
+svSummaryGRCh37 <- svDataLifted %>% group_by(SVTYPE) %>% summarise(
+  InputSVs = n_distinct(SV_ID),
+  InputRefLength = sum(REF_LENGTH),
+  GenomeSize = genomeSizeGRCh37
+)
+
+
+```
+
+
+
+# Load the intersect and strip away most unnecessary information:
+
+```{r}
+
+geneTotals <- read.table('gtfExon.bed', sep = '\t')
+names(geneTotals) <- c('CHROM', 'START0', 'END', 'GENE_ID')
+geneTotals$REF_LENGTH <- geneTotals$END - geneTotals$START0
+
+geneSummary <- geneTotals %>% summarise(
+  TotalInput_Features = n_distinct(GENE_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectExons <- read.table('svData.intersect.SVs.Exons.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectExons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectExons <- merge(svIntersectExons, svData, by = 'SV_ID')
+
+svIntersectExonsSummary <- svIntersectExons %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'Exon Overlap'
+)
+svIntersectExonsSummary <- merge(svIntersectExonsSummary, svSummaryMMul10, by = 'SVTYPE')
+svIntersectExonsSummary <- merge(svIntersectExonsSummary, geneSummary)
+
+summaryData <- svIntersectExonsSummary
+
+rm(geneTotals)
+rm(geneSummary)
+rm(svIntersectExonsSummary)
+
+
+
+```
+
+
+# Same idea as above, but for gene body:
+
+```{r}
+
+geneTotals <- read.table('gtfGene.bed', sep = '\t')
+names(geneTotals) <- c('CHROM', 'START0', 'END', 'GENE_ID')
+geneTotals$REF_LENGTH <- geneTotals$END - geneTotals$START0
+
+geneSummary <- geneTotals %>% summarise(
+  TotalInput_Features = n_distinct(GENE_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectGenes <- read.table('svData.intersect.SVs.Genes.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectGenes) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectGenes <- merge(svIntersectGenes, svData, by = 'SV_ID')
+
+svIntersectGenesSummary <- svIntersectGenes %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'Gene Overlap'
+)
+svIntersectGenesSummary <- merge(svIntersectGenesSummary, svSummaryMMul10, by = 'SVTYPE')
+svIntersectGenesSummary <- merge(svIntersectGenesSummary, geneSummary)
+
+summaryData <- rbind(summaryData, svIntersectGenesSummary)
+
+rm(geneTotals)
+rm(geneSummary)
+rm(svIntersectGenesSummary)
+
+```
+
+
+# Same idea as above, but for HOMER TFBS:
+
+```{r}
+
+tfbsTotals <- read.table('stats.txt', sep = '\t')
+names(tfbsTotals) <- c('NAME', 'VALUE')
+
+homerIntersect <- read.table('svData.intersect.SVs.TFBS.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(homerIntersect) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+homerIntersect <- merge(homerIntersect, svData, by = 'SV_ID')
+
+homerSummary <- homerIntersect %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'HOMER Overlap'
+)
+homerSummary <- merge(homerSummary, svSummaryMMul10, by = 'SVTYPE')
+homerSummary$TotalInput_Features <- tfbsTotals$VALUE[tfbsTotals$NAME == 'TotalTFBS_Features']
+homerSummary$Input_Feature_RefLength <- tfbsTotals$VALUE[tfbsTotals$NAME == 'TotalTFBS_BP']
+
+summaryData <- rbind(summaryData, homerSummary)
+
+rm(tfbsTotals)
+rm(homerSummary)
+
+```
+
+
+
+
+
+# The intersect between ERB data and the lifted SVs. 
+
+```{r}
+
+erbTotals <- read.table('erb.bed', sep = '\t')
+names(erbTotals) <- c('CHROM', 'START0', 'END', 'ERB_TYPE', 'ERB_ID')
+erbTotals$REF_LENGTH <- erbTotals$END - erbTotals$START0
+
+erbSummary <- erbTotals %>% group_by(ERB_TYPE) %>% summarise(
+  TotalInput_Features = n_distinct(ERB_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectERB <- read.table('svData.intersect.SVs.ERB.txt', sep = '\t')[c(4, 6, 7, 8, 9, 10)]
+names(svIntersectERB) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'ERB_TYPE', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectERB <- merge(svIntersectERB, svData, by = 'SV_ID')
+
+svIntersectERBSummary <- svIntersectERB %>% group_by(SVTYPE, ERB_TYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = paste0('ERB Overlap: ', unique(ERB_TYPE))
+) 
+
+svIntersectERBSummary <- merge(svIntersectERBSummary, svSummaryGRCh37, by = 'SVTYPE')
+svIntersectERBSummary <- merge(svIntersectERBSummary, erbSummary, by = 'ERB_TYPE')
+
+
+summaryData <- rbind(svIntersectERBSummary[names(summaryData)], summaryData)
+rm(svIntersectERBSummary)
+
+```
+
+
+```{r}
+
+IntronTotals <- read.table('gtfIntron2.bed', sep = '\t')
+names(IntronTotals) <- c('CHROM', 'START0', 'END', 'Intron_ID')
+IntronTotals$REF_LENGTH <- IntronTotals$END - IntronTotals$START0
+
+IntronSummary <- IntronTotals %>% summarise(
+  TotalInput_Features = n_distinct(Intron_ID),
+  Input_Feature_RefLength = sum(REF_LENGTH)
+)
+
+svIntersectIntrons <- read.table('svData.intersect.SVs.Introns2.txt', sep = '\t')[c(4, 6, 7, 8, 9)]
+names(svIntersectIntrons) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+svIntersectIntrons <- merge(svIntersectIntrons, svData, by = 'SV_ID')
+
+svIntersectIntronsSummary <- svIntersectIntrons %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'Intron Overlap'
+)
+svIntersectIntronsSummary <- merge(svIntersectIntronsSummary, svSummaryMMul10, by = 'SVTYPE')
+svIntersectIntronsSummary <- merge(svIntersectIntronsSummary, IntronSummary)
+
+summaryData <- rbind(summaryData, svIntersectIntronsSummary)
+
+rm(IntronTotals)
+rm(IntronSummary)
+rm(svIntersectIntronsSummary)
+
+```
+
+
+
+
+rm(summaryData)
+Try to add ME 
+
+```{r}
+
+#bins <- c(0, 250, 350, Inf)
+#labels <- c("LI_or_SimpleRepeat", "ALU(250to350)", "LargeME")
+
+METotals <- read.table('stats.txt', sep = '\t')
+names(METotals) <- c('NAME', 'VALUE')
+
+MEIntersect <- read.table('intersect.PBSV.RepMask.bed', sep = '\t')[c(1, 3, 4, 6, 7)]
+names(MEIntersect) <- c('SV_ID', 'FEAT_START0', 'FEAT_END', 'FEAT_ID', 'INTERSECT_LENGTH')
+
+MEIntersect <- merge(MEIntersect, svData, by = 'SV_ID')
+
+MESummary <- MEIntersect %>% group_by(SVTYPE) %>% summarise(
+  TotalSVs = n_distinct(SV_ID),
+  TotalFeatures = n_distinct(FEAT_ID),
+  TotalIntersect = sum(INTERSECT_LENGTH),
+  TotalRefLength = sum(REF_LENGTH),
+  Category = 'ME Overlap'
+)
+
+MESummary <- merge(MESummary, svSummaryMMul10, by = 'SVTYPE')
+MESummary$TotalInput_Features <- METotals$VALUE[METotals$NAME == 'TotalME_Features']
+MESummary$Input_Feature_RefLength <- METotals$VALUE[METotals$NAME == 'TotalME_BP']
+
+summaryData <- rbind(summaryData, MESummary)
+
+#rm(METotals)
+#rm(MESummary)
+
+
+
+
+```
+
+
+
+```{r}
+
+
+dataForContingency <- summaryData[c('Category', 'SVTYPE')]
+dataForContingency$A <- summaryData$TotalIntersect
+dataForContingency$B <- summaryData$InputRefLength - summaryData$TotalIntersect
+dataForContingency$C <- summaryData$Input_Feature_RefLength - summaryData$TotalIntersect
+dataForContingency$D <- summaryData$GenomeSize - summaryData$Input_Feature_RefLength - dataForContingency$B
+
+write.table(summaryData, file = 'SV_Overlaps.txt', row.names = F, sep = '\t')
+#write.table(dataForContingency, file = 'OR_Data.txt', row.names = F, sep = '\t')
+dataForContingency <- dataForContingency[dataForContingency$SVTYPE != "BND", ]
+
+
+```
+
+
+
+
+```{r}
+
+
+SV_OR_df <- data.frame()
+
+for (rowIdx in 1:nrow(dataForContingency)){
+  contingency_table <- matrix(as.numeric(dataForContingency[rowIdx,c('A','B','C','D'), drop = TRUE]), ncol = 2)
+  
+  #populate SV_OR_df with the SV_type, odds ratio (OR) and the upper and lower limits (Upper and lower CI) of the confidence interval
+  SV_OR_df <- rbind(SV_OR_df, data.frame(Category = dataForContingency[rowIdx,'Category', drop = TRUE], SV_Type = dataForContingency[rowIdx,'SVTYPE', drop = TRUE], 
+                                         OR = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Odds Ratio`, 
+                                         Lower_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[1], 
+                                         Upper_CI = BioProbability::odds.ratio(contingency_table, conf.int = T)$`Confidence Interval of level 5%`[2])
+  )
+}
+
+print(SV_OR_df)
+
+
+
+```
+
+
+```{r}
+
+SV_OR_df$Category2 <- stringr::str_to_title(gsub(gsub(SV_OR_df$Category, pattern = 'ERB Overlap: ', replacement = ''), pattern = '_', replacement = ' '))
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Tf', replacement = 'TF')
+SV_OR_df$Category2 <- gsub(SV_OR_df$Category2, pattern = '^Ctcf', replacement = 'CTCF')
+SV_OR_df$Category2 <- reorder(SV_OR_df$Category2, log(SV_OR_df$OR), decreasing = FALSE)
+
+OD_plot <- ggplot(SV_OR_df, aes(x = Category2, y = log(OR), fill = SV_Type)) +
+  geom_col(position = position_dodge2(), color = 'black') +
+  #facet_wrap(. , ncol = 3) +
+  egg::theme_article(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(fill = 'SV Type', y = 'Log Odds Ratio', x = '')
+
+OD_plot
+
+OD_plot <- ggplot(SV_OR_df, aes(x = Category2, y = log(OR), fill = SV_Type)) +
+  geom_col(position = position_dodge2(), color = 'black') +
+  #facet_wrap(~ Category2, ncol = 3) +  # Uncomment and adjust if needed
+  egg::theme_article(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(fill = 'SV Type', y = 'Log Odds Ratio', x = '') +
+  scale_y_continuous(limits = c(-2, 2)) 
+OD_plot
+
+
+```

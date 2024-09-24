@@ -1,0 +1,537 @@
+
+---
+title: "SV table with HOMVAR HOMEREF ect. AF=.5 or not"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2023-11-21"
+---
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("/Users/mulch/Documents/R_working_directory")
+
+# Set the root directory for notebook chunks
+knitr::opts_knit$set(root.dir = "/Users/mulch/Documents/R_working_directory")
+
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+load the table with excess het homvar and hom ref
+see how many of each, and stratily by technology and by if AF=.5 or not
+```{r}
+SV_table_w_excesshet <- read.table('svData.table.exhet.txt', sep = '\t', header = TRUE)
+
+#  first row
+print(SV_table_w_excesshet[1,])
+
+# column numbers and their names
+for (i in 1:ncol(SV_table_w_excesshet)) {
+  cat("Column", i, ": ", colnames(SV_table_w_excesshet)[i], "\n")
+}
+
+View(SV_table_w_excesshet)
+```
+
+add a col for AF=.5 or not this is TRUE or FALSE 
+```{r}
+SV_table_w_excesshet$AF_0.5 <- SV_table_w_excesshet$AF == 0.5
+
+#also add a col for technology for if ID col contains CLR or not 
+
+#parsing the ID colSV_table_w_excesshet
+SV_table_w_excesshet <- SV_table_w_excesshet %>%
+  mutate(technology = case_when(
+    grepl("clr", ID) & grepl("ccs", ID) ~ "BOTH",
+    grepl("clr", ID) ~ "CLR",
+    grepl("ccs", ID) ~ "CCS",
+    TRUE ~ "OTHER"
+  ))
+
+```
+
+Here is some info about some of the categories of interest
+HET (count of het genotypes)
+HOM-REF (count of homozygous reference genotypes)
+HOM-VAR (count of homozygous variant genotypes) 
+
+
+Lets look as homvar and homref by svtype as a first look
+ 
+```{r}
+
+#percent for a few categories
+homvar_homref_svtype <- SV_table_w_excesshet  %>%
+  group_by(SVTYPE, HOM.REF, HOM.VAR) %>%
+  summarise(Percent = n() / nrow(SV_table_w_excesshet) * 100)
+
+
+#  SVTYPE homvar
+plot_counts_homvar_SVTYPE <- ggplot(homvar_homref_svtype, aes(x = HOM.VAR, y = Percent, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "homvar",
+    y = "Percent of total SVs",
+    fill = "SVTYPE",
+    title = "percent total variants by homvar",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#  SVTYPE and homref
+plot_counts_homref_SVTYPE <- ggplot(homvar_homref_svtype, aes(x = HOM.REF, y = Percent, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "homref",
+    y = "Percent of total SVs",
+    fill = "SVTYPE",
+    title = "percent total variants by homref",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_counts_homvar_SVTYPE)
+print(plot_counts_homref_SVTYPE)
+
+# Fraction for each category
+homvar_homref_svtype_fraction <- SV_table_w_excesshet %>%
+  group_by(SVTYPE, HOM.REF, HOM.VAR, HET) %>%
+  summarise(Fraction = n() / nrow(SV_table_w_excesshet))
+
+ # SVTYPE and het
+plot_fraction_het_SVTYPE <- ggplot(homvar_homref_svtype_fraction, aes(x = HET, y = Fraction, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "HET",
+    y = "Fraction of total SVs",
+    fill = "SVTYPE",
+    title = "Fraction total variants by het",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# SVTYPE and homvar
+plot_fraction_homvar_SVTYPE <- ggplot(homvar_homref_svtype_fraction, aes(x = HOM.VAR, y = Fraction, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "homvar",
+    y = "Fraction of total SVs",
+    fill = "SVTYPE",
+    title = "Fraction total variants by homvar",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# SVTYPE and homref
+plot_fraction_homref_SVTYPE <- ggplot(homvar_homref_svtype_fraction, aes(x = HOM.REF, y = Fraction, fill = SVTYPE)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "homref",
+    y = "Fraction of total SVs",
+    fill = "SVTYPE",
+    title = "Fraction total variants by homref",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_fraction_homvar_SVTYPE)
+print(plot_fraction_homref_SVTYPE)
+print(plot_fraction_het_SVTYPE)
+
+```
+```{r}
+# Fraction for each category
+het_svtype_fraction <- SV_table_w_excesshet %>%
+  group_by(technology, HET, AF_0.5, NCALLED) %>%
+  summarise(Fraction = n() / nrow(SV_table_w_excesshet))
+
+# SVTYPE and homref
+plot_fraction_het <- ggplot(het_svtype_fraction, aes(x = HET, y = Fraction, fill = AF_0.5)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "HET",
+    y = "Fraction of total SVs",
+    fill = "AF=.5",
+    title = "Fraction total variants by HET",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_fraction_het)
+
+plot_fraction_tec <- ggplot(het_svtype_fraction, aes(x = HET, y = Fraction, fill = technology)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "HET",
+    y = "Fraction of total SVs",
+    fill = "technology",
+    title = "Fraction total variants by HET",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_fraction_tec)
+#subset of AF=.5
+het_svtype_fraction_subset <- SV_table_w_excesshet %>%
+  filter(AF_0.5 == TRUE) %>%
+  group_by(technology, HET, NCALLED) %>%
+  summarise(Fraction_AF.5 = n() / nrow(het_svtype_fraction_subset))
+
+
+plot_counts_het_SVTYPE_subset <- ggplot(het_svtype_fraction_subset, aes(x = HET, y = Fraction_AF.5, fill = technology)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "het",
+    y = "Fraction of total SVs where AF=.5",
+    fill = "technology",
+    title = "Fraction total variants by het (AF_0.5 subset)",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_counts_het_SVTYPE_subset)
+```
+```{r}
+#fraction of het
+het_AF.5_fraction <- SV_table_w_excesshet %>%
+  group_by(technology, HET, NCALLED, AF_0.5) %>%
+  summarise(Fraction_Het_Ncalled = (HET) / (NCALLED))
+
+plot_het <- ggplot(het_AF.5_fraction, aes(x = technology, y = Fraction_Het_Ncalled)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "technology",
+    y = "Fraction of HET / NCALLED",
+    title = "Fraction HET / NCALLED ",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_het)
+
+#do a geom_density or geom_violin where x axis is fraction HET make y axis the technology and
+plot_het_violin <- ggplot(het_AF.5_fraction, aes(x = technology, y = Fraction_Het_Ncalled)) +
+  geom_violin(scale = "width", position = "fill", trim = FALSE) +
+  labs(
+    x = "Technology",
+    y = "Fraction of HET / NCALLED",
+    title = "Fraction HET / NCALLED",
+    subtitle = "Violin Plot"
+  ) +
+  theme_minimal() +
+  facet_wrap(~ technology, scales = "free")
+
+print(plot_het_violin)
+
+plot_het_density_facet <- ggplot(het_AF.5_fraction, aes(x = Fraction_Het_Ncalled)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    x = "Fraction of HET / NCALLED",
+    title = "Density Plot of Fraction HET / NCALLED",
+    subtitle = "Density Plot"
+  ) +
+  scale_fill_discrete(name = "AF_0.5") +
+  theme_minimal() +
+  facet_wrap(~ technology, scales = "free")
+
+print(plot_het_density_facet)
+```
+
+```{r}
+#fraction of het
+het_AF.5_fraction <- SV_table_w_excesshet %>%
+  group_by(technology, HET, NCALLED, AF_0.5) %>%
+  summarise(Fraction_Het_Ncalled = (HET) / (NCALLED))
+
+plot_het_AF.5 <- ggplot(het_AF.5_fraction, aes(x = technology, y = Fraction_Het_Ncalled, fill = AF_0.5)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "technology",
+    y = "Fraction of HET / NCALLED",
+    fill = "AF_0.5",
+    title = "Fraction HET / NCALLED ",
+    subtitle = "Grouped Bar Plot"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_het_AF.5)
+
+#do a geom_density or geom_violin where x axis is fraction HET make y axis the technology and facet based on AF_0.5
+plot_het_AF.5_violin <- ggplot(het_AF.5_fraction, aes(x = technology, y = Fraction_Het_Ncalled, fill = as.factor(AF_0.5))) +
+  geom_violin(scale = "width", position = "fill", trim = FALSE) +
+  labs(
+    x = "Technology",
+    y = "Fraction of HET / NCALLED",
+    fill = "AF_0.5",
+    title = "Fraction HET / NCALLED",
+    subtitle = "Violin Plot"
+  ) +
+  scale_fill_discrete(name = "AF_0.5") +
+  theme_minimal() +
+  facet_wrap(~ technology, scales = "free")
+
+print(plot_het_AF.5_violin)
+
+plot_het_AF.5_density_facet <- ggplot(het_AF.5_fraction, aes(x = Fraction_Het_Ncalled, fill = as.factor(AF_0.5))) +
+  geom_density(alpha = 0.5) +
+  labs(
+    x = "Fraction of HET / NCALLED",
+    fill = "AF_0.5",
+    title = "Density Plot of Fraction HET / NCALLED",
+    subtitle = "Density Plot"
+  ) +
+  scale_fill_discrete(name = "AF_0.5") +
+  theme_minimal() +
+  facet_wrap(~ technology, scales = "free")
+
+print(plot_het_AF.5_density_facet)
+
+
+```
+
+```{r}
+#ok now strat by if AF=.5 or not and technology
+
+# percentage of total SVs for a few variables
+tech_af_0.5_count <- SV_table_w_excesshet  %>%
+  group_by(technology, AF_0.5, HOM.VAR, HOM.REF) %>%
+  summarise(Count = n())
+
+tech_af_0.5 <- SV_table_w_excesshet %>%
+  group_by(technology, AF_0.5, HOM.VAR, HOM.REF) %>%
+  summarise(Percent = n() / nrow(SV_table_w_excesshet) * 100)
+
+#  SVTYPE and af.5 for
+plot_percent_AF.5 <- ggplot(tech_af_0.5, aes(x = technology, y = Percent, fill = AF_0.5)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "technology",
+    y = "Percent of Total SVs",
+    fill = "AF is .5",
+    title = "percent of total SVs that are AF=.05",
+    subtitle = "AF is .5 by technology"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#  SVTYPE and af.5 
+plot_percent_AF.5_count <- ggplot(tech_af_0.5_count, aes(x = technology, y = Count, fill = AF_0.5)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  labs(
+    x = "technology",
+    y = "Count",
+    fill = "AF is .5",
+    title = "count of total SVs that are AF=.05",
+    subtitle = "AF is .5 by technology"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_percent_AF.5_count)
+print(plot_percent_AF.5)
+
+#fraction vs percent of total
+tech_af_0.5_fraction <- SV_table_w_excesshet %>%
+  group_by(technology, AF_0.5, HOM.VAR, HOM.REF) %>%
+  summarise(Fraction = n() / nrow(SV_table_w_excesshet))
+
+### add in stacked bar for AF=.5 or not( out of the total)
+plot_fraction_AF_0.5_total <- ggplot(tech_af_0.5_fraction, aes(x = technology, y = Fraction, fill = AF_0.5)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(
+    x = "Technology",
+    y = "Fraction of Total SVs",
+    fill = "AF is 0.5",
+    title = "Fraction of Total SVs with AF=0.5",
+    subtitle = "AF is 0.5 by Technology"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(plot_fraction_AF_0.5_total)
+
+
+```
+
+
+
+below is heatmap example plot in case this can be useful
+```{r}
+
+#Heatmaps?? hom var and hom ref and how thay may be coreleted
+
+#AF
+heatmap_homvar_homref <- ggplot(SV_table_w_excesshet, aes(x = HOM.VAR, y = HOM.REF, fill = AF)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust color scale
+  labs(
+    title = "Heatmap of AF by homvar and homref",
+    x = "homvar",
+    y = "homref"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    legend.position = "right"  
+  )
+
+#svlenth
+ heatmap_homvar_homref_svlen <- ggplot(SV_table_w_excesshet, aes(x = HOM.VAR, y = HOM.REF, fill = SVLEN)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust color scale
+  labs(
+    title = "Heatmap of Sv Length by homvar and homref",
+    x = "homvar",
+    y = "homref"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    legend.position = "right"  
+  )
+
+print(heatmap_homvar_homref_svlen)
+print(heatmap_homvar_homref)
+
+```
+
+```{r}
+#plotting homvar and hom ref a few ways
+ggplot(tech_af_0.5, aes(x = technology, y = Percent, fill = factor(HOM.VAR))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(
+    x = "Technology",
+    y = "Percentage",
+    fill = "HOM.VAR",
+    title = "Percentage of HOM.VAR by Technology"
+  ) +
+  theme_minimal()
+
+ggplot(SV_table_w_excesshet, aes(x = technology, y = NCALLED, fill = factor(HOM.VAR))) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "Technology",
+    y = "N called",
+    fill = "HOM.VAR",
+    title = "Stacked NCALLED of HOM.VAR by Technology"
+  ) +
+  theme_minimal()
+#next two should get at Sams points:
+ggplot(SV_table_w_excesshet, aes(x = technology, y = NCALLED, fill = factor(HET))) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "Technology",
+    y = "N called",
+    fill = "HET",
+    title = "Stacked NCALLED of HET by Technology"
+  ) +
+  theme_minimal()
+ggplot(SV_table_w_excesshet, aes(x = HET, y = NCALLED, fill = factor(AF_0.5))) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    x = "HET",
+    y = "N called",
+    fill = "AF_0.5",
+    title = "Stacked HET AF_0.5 for N called"
+  ) +
+  theme_minimal()
+
+ggplot(tech_af_0.5, aes(x = technology, y = Percent, fill = factor(AF_0.5), color = factor(HOM.REF))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Technology",
+    y = "Percentage",
+    fill = "AF=0.5",
+    color = "HOM.REF",
+    title = "Percentage of AF=0.5 by Technology"
+  ) +
+  theme_minimal()
+
+
+```
+Summerize by ncalled
+```{r}
+# percentage of total SVs for a few variables
+tech_ncalled_count <- SV_table_w_excesshet  %>%
+  group_by(technology, AF_0.5, HOM.VAR, HOM.REF, NCALLED) %>%
+  summarise(Count = n())
+
+tech_ncalled <- SV_table_w_excesshet %>%
+  group_by(technology, AF_0.5, HOM.VAR, HOM.REF, NCALLED) %>%
+  summarise(Percent = n() / nrow(SV_table_w_excesshet) * 100)
+
+ggplot(tech_ncalled, aes(x = technology, y = Percent, fill = factor(NCALLED), color = factor(HOM.VAR))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Technology",
+    y = "Percentage",
+    fill = "N called",
+    color = "technology",
+    title = "Percentage of Ncalled by Technology"
+  ) +
+  theme_minimal()
+
+ggplot(tech_ncalled_count, aes(x = HOM.VAR, y = NCALLED, fill = factor(HOM.REF), color = factor(technology))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "HOMVAR",
+    y = "NCALLED",
+    fill = "N called ",
+    color = "tech",
+    title = "HOMVAR by Ncalled and Technology"
+  ) +
+  theme_minimal()
+
+ggplot(tech_ncalled_count, aes(x = HOM.REF, y = NCALLED , color = factor(technology))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(
+    x = "HOMREF",
+    y = "NCALLED",
+    fill = "N called ",
+    color = "technology",
+    title = "Ncalled by Technology for HOMREF"
+  ) +
+  theme_minimal()
+
+```
+
+
+here are the bins for AF and Length that are used in other plots- incorporate these?
+```{r}
+# Define brackets 
+bins_length <- c(-1000000, -100000, -10000, -7000, -5000, -1000, -350, -250, -100, -10, 10, 100, 250, 350, 1000, 5000, 7000, 10000, 100000, 1000000)
+tags <- c("-100kb - -1000kb", "-10kb - -100kb", "-7kb - -10kb", "-5kb - -7kb", "-1kb - -5kb", "-350bp - -1kb", "-250bp - -350bp", "-100bp - -250bp", "-10bp - -100bp", "<10bp", "10bp - 100bp", "100bp - 250bp", "250bp - 350bp", "350bp - 1kb", "1kb - 5kb", "5kb - 7kb", "7kb - 10kb", "10kb - 100kb", "100kb - 1000kb")
+
+# Bin the SVLEN values
+bins_svlen <- df %>%
+  mutate(SVLEN_Bracket = cut(SVLEN, breaks = breaks, labels = tags, include.lowest = TRUE))
+
+```
+
+
+```{r}
+#AF bins
+bins_AF <- cut(df$AF, 
+            breaks = c(0, 0.15, 0.33, 0.9, 1), 
+            labels = c("Ultra Rare", "Rare", "Common", "AF=1"),
+            include.lowest = TRUE)
+
+
+
+```
+

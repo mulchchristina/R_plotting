@@ -1,0 +1,377 @@
+---
+title: "PacBIo"
+output: html_document
+date: "2023-10-10"
+---
+
+```{r setup, include=FALSE}
+
+library(dplyr)
+library(Rlabkey)
+library(ggplot2)
+library(patchwork)
+library(officer)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+workDir <- "/Users/bimber/Downloads/PacBio"
+if (!dir.exists(workDir)) {
+  dir.create(workDir, recursive = T)
+}
+
+knitr::opts_knit$set(root.dir = workDir)
+labkey.setDefaults(baseUrl = "https://prime-seq.ohsu.edu")
+lkDefaultFolder <- 'Internal/ColonyData'
+Rdiscvr::SetLabKeyDefaults(baseUrl = 'https://prime-seq.ohsu.edu/', defaultFolder = lkDefaultFolder)
+
+
+
+```
+
+
+
+```{r}
+
+dat <- read.table('CLR.CCS.merge.tagID.annotated.snpEff.filtered_DISCVRSeq_ann.VTT_notmolten.vcf', sep = '\t', header = TRUE)
+dat$INFO.1 <- NULL
+print(nrow(dat))
+
+dat$UniqueKey <- paste0(dat$CHROM, '-', dat$SVTYPE, '-', dat$ID)
+
+
+# Still not unique...
+sum(duplicated(dat$UniqueKey))
+
+# All BNDs are represented 2x:
+dupes <- dat[dat$UniqueKey %in% dat$UniqueKey[duplicated(dat$UniqueKey)],] %>% arrange(UniqueKey)
+
+# Actually make this unique:
+dat <- unique(dat)
+print(nrow(dat))
+
+# Still not unique...
+sum(duplicated(dat$UniqueKey))
+dupes <- dat[dat$UniqueKey %in% dat$UniqueKey[duplicated(dat$UniqueKey)],] %>% arrange(UniqueKey)
+
+# will ignore for now, but need to sort out the original data
+
+
+```
+
+```{r}
+
+ppt <- officer::read_pptx()
+
+
+```
+
+
+# Input for liftOver, which uses our UniqueKey:
+
+```{r}
+
+dat$CHROM <- naturalsort::naturalfactor(dat$CHROM)
+write.table(dat %>% mutate(START=POS - 1, END = POS+nchar(REF)-1) %>% select(CHROM, START, END, UniqueKey) %>% arrange(CHROM, START), file = 'variantsPreLiftover.bed', sep = '\t', row.names = F, col.names = F, quote = F)
+
+variantsPreLiftover <- read.table('variantsPreLiftover.bed', sep = '\t', header = FALSE)
+colnames(variantsPreLiftover) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey')
+
+
+```
+
+
+# Use that for liftOver, get results:
+
+```{r}
+
+variantsThatLifted <- read.table('variantsPostLiftover.sorted.bed', sep = '\t', header = FALSE)
+colnames(variantsThatLifted) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey')
+
+# Create some simplified columns to make plotting easier:
+dat$VariantLifted <- dat$UniqueKey %in% variantsThatLifted$UniqueKey
+print(length(intersect(dat$UniqueKey, variantsThatLifted$UniqueKey)))
+sum(dat$VariantLifted) / length(dat$VariantLifted)
+
+P1 <- ggplot(dat %>% group_by(SVTYPE, VariantLifted) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = VariantLifted, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  #scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV TYpe', y = 'Fraction of SVs') +
+  ggtitle('Fraction of SVs Lifted to GRCh37')
+
+
+P1
+
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P1), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Variants Lifted to GRCh37', location = ph_location_type(type = "title") )
+
+
+```
+
+
+
+```{r fig.width=10}
+
+
+P1 <- ggplot(dat, aes(x = abs(SVLEN), fill = VariantLifted, color = VariantLifted)) +
+  geom_density(alpha = 0.5) +
+  egg::theme_article(base_size = 12) +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  labs(x = 'SV Length (abs)', y = 'Fraction of SVs') +
+  scale_x_continuous(trans = 'log10') +
+  ggtitle('Fraction of SVs Lifted to GRCh37')
+P1
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P1), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Fraction of SVs Lifted to GRCh37', location = ph_location_type(type = "title") )
+
+
+```
+
+
+```{r fig.width=10}
+
+
+erbData <- read.table('erbIntersect.bed', sep = '\t', header = FALSE)
+colnames(erbData) <- c('SV_Contig', 'SV_Start', 'SV_End', 'UniqueKey', 'ERB_Contig', 'ERB_Start', 'ERB_End', 'ERB_Type', 'ERB_Overlap')
+erbData$ERB_Length <- erbData$ERB_End - erbData$ERB_Start + 1
+erbData$ERB_Overlap_Pct <- erbData$ERB_Overlap / erbData$ERB_Length
+
+# Create some simplified columns to make plotting easier:
+dat2 <- merge(dat, erbData[c('UniqueKey', 'ERB_Type', 'ERB_Overlap')], by = 'UniqueKey', all.x = T)
+
+# 4304 duplicates...need to clean up input data
+print(nrow(dat2) - nrow(dat))
+
+
+P1 <- ggplot(dat2 %>% group_by(SVTYPE, ERB_Type) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = ERB_Type, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Type', y = 'Fraction of SVs')
+
+P2 <- ggplot(dat2 %>% group_by(SVTYPE, ERB_Type) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = ERB_Type, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Type', y = '# SVs')
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+P
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Regulatory Element Overlaps', location = ph_location_type(type = "title") )
+
+
+
+P1 <- ggplot(dat2, aes(x = ERB_Overlap, fill = ERB_Type)) +
+  geom_density(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'ERB Overlap', y = '# SVs') +
+  facet_grid(SVTYPE ~ ., scales = 'free') +
+  scale_x_continuous(trans = 'log10') 
+P1
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P1), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Regulatory Element Overlaps', location = ph_location_type(type = "title") )
+
+
+
+```
+
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Create some simplified columns to make plotting easier:
+dat$OverlapsGene <- !is.na(dat$OG)
+
+P1 <- ggplot(dat %>% group_by(SVTYPE, OverlapsGene) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = OverlapsGene, y = Total)) +
+  geom_col(color = 'black') +
+  #scale_y_continuous(trans = 'log10') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type')
+
+
+P2 <- ggplot(dat %>% group_by(SVTYPE, OverlapsGene) %>% summarise(Total = n()), aes(x = forcats::fct_reorder(SVTYPE, desc(Total)), fill = OverlapsGene, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type')
+
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+P
+
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Gene Overlaps', location = ph_location_type(type = "title") )
+
+
+
+```
+
+
+# Gene Overlaps:
+
+```{r}
+
+# Limit to overlapping genes:
+toPlot <- dat %>%
+  filter(OverlapsGene) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT) %>% 
+  summarise(Total = n())
+
+toPlot$IMPACT[is.na(toPlot$IMPACT)] <- 'MODIFIER'
+print(sum(toPlot$Total))
+
+P1 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  labs(x = 'SV Type') +
+  egg::theme_article(base_size = 12) +
+  ggtitle('Impact on Protein Coding')
+
+toPlot <- toPlot %>%
+  filter(IMPACT != 'MODIFIER') %>%
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = sum(Total))
+
+print(sum(toPlot$Total))
+P2 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = IMPACT, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  labs(x = 'SV Type') +
+  ggtitle('Impact on Protein Coding')
+
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Impact on Protein Coding', location = ph_location_type(type = "title") )
+
+
+```
+
+# This should summarize by effect type:
+
+```{r}
+
+SEVERE_EFFECTS <- c('exon_loss_variant', 'stop_lost', 'disruptive_inframe_deletion', 'frameshift_variant', 'stop_gained', 'transcript_ablation', 'bidirectional_gene_fusion', 'gene_fusion', 'disruptive_inframe_deletion', 'disruptive_inframe_insertion', 'splice_donor_variant', 'start_lost', 'splice_acceptor_variant')
+
+SEVERE_EFFECTS_PATTERN <- paste0(SEVERE_EFFECTS, collapse = '|')
+
+simplifyVE <- function(toPlot) {
+  toPlot$VE_Simplified <- sapply(toPlot$VE, function(x){
+    x <- unlist(strsplit(x, split = '|', fixed = TRUE))
+    if (any(grepl(x = x, pattern = SEVERE_EFFECTS_PATTERN))){
+      return('Severe Coding Defect')
+    }
+    
+    if (length(x) == 1) {
+      return(x[1])
+    }
+    
+    x <- x[x != 'intergenic_region']
+    
+    if (length(intersect(x, SEVERE_EFFECTS)) > 0) {
+      return('Severe Coding Defect')
+    }
+    
+    if (any(grepl(x = x, pattern = paste0(SEVERE_EFFECTS, collapse = '|')))){
+      print(x)      
+      return('Severe Coding Defect')
+    }
+    
+    return(paste0(x, collapse = '|'))
+  })
+  
+  return(toPlot)
+}
+
+
+#NOTE: most of the low frequency categories are HIGH impact. 
+toPlot <- simplifyVE(dat) %>% 
+  filter(OverlapsGene) %>% 
+  filter(!is.na(IMPACT)) %>% 
+  group_by(SVTYPE) %>% 
+  mutate(TotalForType = n()) %>%
+  group_by(SVTYPE, TotalForType, IMPACT, VE_Simplified) %>% 
+  summarise(Total = n())
+
+
+x <- toPlot %>% group_by(VE_Simplified, IMPACT) %>% summarize(Total = sum(Total)) %>% arrange(desc(T))
+length(unique(toPlot$VE_Simplified))
+
+P1 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(x = 'SV Type')
+
+
+P2 <- ggplot(toPlot, aes(x = forcats::fct_reorder(SVTYPE, desc(TotalForType)), fill = VE_Simplified, y = Total)) +
+  geom_col(color = 'black', position = 'fill') +
+  egg::theme_article(base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(x = 'SV Type')
+
+
+P <- P1 + P2 + patchwork::plot_layout(guides = 'collect')
+
+
+ppt <- add_slide(ppt, layout = "Title and Content", master = "Office Theme") %>%
+  officer::ph_with(value = print(P), location = ph_location_type(type = "body")) %>%
+  officer::ph_with(value = 'Variant Effect', location = ph_location_type(type = "title") )
+
+
+
+
+```
+
+# TFBS / Motifs:
+
+
+```{r}
+
+
+
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+```{r}
+
+
+print(ppt, target = 'PacBio.pptx')
+
+
+```
+
+
+
+```{r}
+
+
+
+
+```
+
